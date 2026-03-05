@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Gallery — {name}">
+  <title>Gallery — {name}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./assets/css/style.css">
+</head>
+<body data-page="gallery">
+
+  <!-- ===== NAVIGATION ===== -->
+  <nav class="nav" role="navigation" aria-label="メインナビゲーション">
+    <div class="nav__inner">
+      <a href="./index.html" class="nav__logo" aria-label="ホームへ">—</a>
+      <div class="nav__links" role="list">
+        <a href="./index.html"     class="nav__link" role="listitem">Home</a>
+        <a href="./portfolio.html" class="nav__link" role="listitem">Portfolio</a>
+        <a href="./diary.html"     class="nav__link" role="listitem">Diary</a>
+        <a href="./gallery.html"   class="nav__link" role="listitem">Gallery</a>
+      </div>
+      <button class="nav__toggle" aria-label="メニューを開閉する">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Mobile Menu -->
+  <div class="nav__mobile-menu" role="dialog" aria-label="モバイルメニュー">
+    <nav class="nav__mobile-links">
+      <a href="./index.html"     class="nav__mobile-link">Home</a>
+      <a href="./portfolio.html" class="nav__mobile-link">Portfolio</a>
+      <a href="./diary.html"     class="nav__mobile-link">Diary</a>
+      <a href="./gallery.html"   class="nav__mobile-link">Gallery</a>
+    </nav>
+  </div>
+
+  <!-- ===== PAGE HEADER ===== -->
+  <header class="page-header">
+    <div class="container">
+      <div class="page-header__label">Photos</div>
+      <h1 class="page-header__title">Gallery</h1>
+      <p class="page-header__desc">
+        日常で切り取った写真の記録。クリックで拡大表示。
+      </p>
+    </div>
+  </header>
+
+  <!-- ===== GALLERY GRID ===== -->
+  <main>
+    <div class="container">
+      <div class="gallery-grid" role="list" aria-label="フォトギャラリー">
+        <!-- JS fills this -->
+      </div>
+      <div style="height: 5rem;"></div>
+    </div>
+  </main>
+
+  <!-- ===== LIGHTBOX ===== -->
+  <div class="lightbox" role="dialog" aria-modal="true" aria-label="写真の拡大表示">
+    <button class="lightbox__close" aria-label="閉じる">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+    <div class="lightbox__counter" aria-live="polite">1 / 1</div>
+    <button class="lightbox__prev" aria-label="前の写真">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" aria-hidden="true">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+    </button>
+    <img class="lightbox__img" src="" alt="" draggable="false">
+    <button class="lightbox__next" aria-label="次の写真">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" aria-hidden="true">
+        <polyline points="9 18 15 12 9 6"/>
+      </svg>
+    </button>
+    <div class="lightbox__caption" aria-live="polite"></div>
+  </div>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer" role="contentinfo">
+    <div class="container">
+      <div class="footer__inner">
+        <div class="footer__left">
+          <div class="footer__name">—</div>
+          <div class="footer__copy">© — All rights reserved.</div>
+        </div>
+        <div class="footer__social">
+          <!-- JS fills this -->
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="./assets/js/data.js"></script>
+  <script src="./assets/js/app.js"></script>
+</body>
+</html>
