@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Portfolio · Diary · Gallery">
+  <title>{name}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./assets/css/style.css">
+</head>
+<body data-page="home">
+
+  <!-- ===== NAVIGATION ===== -->
+  <nav class="nav" role="navigation" aria-label="メインナビゲーション">
+    <div class="nav__inner">
+      <a href="./index.html" class="nav__logo" aria-label="ホームへ">—</a>
+      <div class="nav__links" role="list">
+        <a href="./index.html"      class="nav__link" role="listitem">Home</a>
+        <a href="./portfolio.html"  class="nav__link" role="listitem">Portfolio</a>
+        <a href="./diary.html"      class="nav__link" role="listitem">Diary</a>
+        <a href="./gallery.html"    class="nav__link" role="listitem">Gallery</a>
+      </div>
+      <button class="nav__toggle" aria-label="メニューを開閉する" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Mobile Menu -->
+  <div class="nav__mobile-menu" role="dialog" aria-label="モバイルメニュー">
+    <nav class="nav__mobile-links">
+      <a href="./index.html"     class="nav__mobile-link">Home</a>
+      <a href="./portfolio.html" class="nav__mobile-link">Portfolio</a>
+      <a href="./diary.html"     class="nav__mobile-link">Diary</a>
+      <a href="./gallery.html"   class="nav__mobile-link">Gallery</a>
+    </nav>
+  </div>
+
+  <!-- ===== HERO ===== -->
+  <section class="hero" aria-label="ヒーロー">
+    <div class="hero__inner">
+      <div class="hero__eyebrow" aria-hidden="true">
+        <span class="hero__eyebrow-text">Portfolio</span>
+      </div>
+      <h1 class="hero__name">—</h1>
+      <p class="hero__tagline">—</p>
+      <div class="hero__actions">
+        <a href="./portfolio.html" class="btn btn--primary">Portfolio</a>
+        <a href="#" class="btn btn--outline hero__contact-btn" target="_blank" rel="noopener noreferrer">Contact via X</a>
+      </div>
+    </div>
+    <button class="hero__scroll" aria-label="下へスクロール">
+      <div class="hero__scroll-line" aria-hidden="true"></div>
+      <span>Scroll</span>
+    </button>
+  </section>
+
+  <!-- ===== ABOUT ===== -->
+  <section class="about" id="about">
+    <div class="container">
+      <div class="about__inner">
+
+        <div class="about__text" data-fade>
+          <div class="section-label about__label">About</div>
+          <h2 class="about__heading">
+            Hello,<br>I'm <span class="about__name-text">—</span>
+          </h2>
+          <div class="about__bio">
+            <!-- JS fills this -->
+          </div>
+          <div class="about__stats">
+            <!-- JS fills this -->
+          </div>
+          <div class="about__actions">
+            <a href="./portfolio.html" class="btn btn--outline">View All Works</a>
+          </div>
+        </div>
+
+        <div class="about__image" data-fade>
+          <div class="about__image-box">
+            <div class="about__image-placeholder">Photo</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== FEATURED WORKS ===== -->
+  <section class="featured-works section" id="works">
+    <div class="container">
+      <div class="section-header section-header--row" data-fade>
+        <div>
+          <div class="section-label">Work</div>
+          <h2 class="section-title">Featured Projects</h2>
+        </div>
+        <a href="./portfolio.html" class="btn btn--text">All Projects →</a>
+      </div>
+      <div class="featured-works__grid">
+        <!-- JS fills this -->
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== LATEST DIARY ===== -->
+  <section class="section section--alt" id="diary-preview">
+    <div class="container">
+      <div class="section-header section-header--row" data-fade>
+        <div>
+          <div class="section-label">Writing</div>
+          <h2 class="section-title">Latest Diary</h2>
+        </div>
+        <a href="./diary.html" class="btn btn--text">All Entries →</a>
+      </div>
+      <div class="diary-list home-diary-list">
+        <!-- JS fills this -->
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SOCIAL / CONNECT ===== -->
+  <section class="social-section section--dark" id="contact">
+    <div class="container">
+      <div data-fade>
+        <div class="section-label" style="color: var(--gray-600);">Connect</div>
+        <h2 style="font-size: clamp(1.75rem, 4vw, 2.75rem); letter-spacing: -0.04em; line-height: 1.1;">
+          Find me online.
+        </h2>
+        <p class="contact-message">—</p>
+        <div class="social-links">
+          <!-- JS fills this -->
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer" role="contentinfo">
+    <div class="container">
+      <div class="footer__inner">
+        <div class="footer__left">
+          <div class="footer__name">—</div>
+          <div class="footer__copy">© — All rights reserved.</div>
+        </div>
+        <div class="footer__social">
+          <!-- JS fills this -->
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="./assets/js/data.js"></script>
+  <script src="./assets/js/app.js"></script>
+</body>
+</html>
