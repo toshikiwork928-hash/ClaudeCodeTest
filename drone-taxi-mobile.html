@@ -186,6 +186,28 @@ const COL = {
   ssSkyMid:"#c85a8e",
   ssSkyLo: "#ff8a4c",
   ssSkyHz: "#ffd27a",
+  // 山ステージ
+  mtnFar:  "#8a9bc4",
+  mtnMid:  "#6a7fb0",
+  mtnNear: "#4a5e8e",
+  snow:    "#eef4ff",
+  rockHi:  "#9a8b76",
+  rock:    "#6e6052",
+  rockSh:  "#473d33",
+  pineHi:  "#3f9a52",
+  pine:    "#206b34",
+  pineSh:  "#114a22",
+  // 都会ステージ
+  bldgFar: "#46506e",
+  bldgHi:  "#7b86a8",
+  bldg:    "#525c7e",
+  bldgSh:  "#343b54",
+  winLit:  "#ffe27a",
+  winDim:  "#2c3450",
+  road:    "#2a2e3a",
+  roadHi:  "#3a4050",
+  roadLine:"#ffd23f",
+  sidewalk:"#6b7286",
 };
 
 // 静的グラデーション(解像度固定なので一度だけ生成)
@@ -267,6 +289,14 @@ function setStick(gx, gy) {
 function onDown(e) {
   e.preventDefault();
   const { gx, gy } = clientToGame(e.clientX, e.clientY);
+  // タイトル: ステージ選択メニューのタップ
+  if (state === STATE.TITLE) {
+    for (let i = 0; i < WORLDS.length; i++) {
+      const r = menuRect(i);
+      if (gx >= r.x && gx <= r.x + r.w && gy >= r.y && gy <= r.y + r.h) { startWorld(i); return; }
+    }
+    return; // オプション以外のタップは無効
+  }
   uiConfirm = true;
   if (state !== STATE.PLAY) return;
   if (inBtn(BTN_BOOST, gx, gy, 8)) { boostId = e.pointerId; uiBoost = true; return; }
@@ -331,12 +361,28 @@ function glow(x, y, r, c, a) {
 const STATE = { TITLE: 0, PLAY: 1, FALLING: 2, GAMEOVER: 3, CLEAR: 4, STAGECLEAR: 5, ALLCLEAR: 6 };
 let state = STATE.TITLE;
 
-// ステージ定義(1-1 / 1-2 / 1-3)。1-2以降は武器アイテムが出現し敵を撃墜できる。
+// ステージ定義。world=0:海 / 1:山 / 2:都会。各worldの1コース目(x-1)はアイテム無しの簡単レベル。
 const STAGES = [
-  { name: "1-1", len: 4600, scroll: 1.0,  sky: "day",   spawnGap: 160, spawnRamp: 64, enemyRate: 0.34, fireGap: 90,  items: false },
-  { name: "1-2", len: 5200, scroll: 1.12, sky: "day",   spawnGap: 140, spawnRamp: 70, enemyRate: 0.46, fireGap: 78,  items: true  },
-  { name: "1-3", len: 5800, scroll: 1.24, sky: "sunset",spawnGap: 122, spawnRamp: 74, enemyRate: 0.56, fireGap: 66,  items: true  },
+  // --- 海 ---
+  { name: "1-1", world: 0, theme: "sea",      len: 4600, scroll: 1.0,  sky: "day",    spawnGap: 160, spawnRamp: 64, enemyRate: 0.34, fireGap: 90, items: false },
+  { name: "1-2", world: 0, theme: "sea",      len: 5200, scroll: 1.12, sky: "day",    spawnGap: 140, spawnRamp: 70, enemyRate: 0.46, fireGap: 78, items: true  },
+  { name: "1-3", world: 0, theme: "sea",      len: 5800, scroll: 1.24, sky: "sunset", spawnGap: 122, spawnRamp: 74, enemyRate: 0.56, fireGap: 66, items: true  },
+  // --- 山 ---
+  { name: "2-1", world: 1, theme: "mountain", len: 4800, scroll: 1.04, sky: "day",    spawnGap: 158, spawnRamp: 64, enemyRate: 0.34, fireGap: 88, items: false },
+  { name: "2-2", world: 1, theme: "mountain", len: 5400, scroll: 1.16, sky: "day",    spawnGap: 138, spawnRamp: 70, enemyRate: 0.48, fireGap: 76, items: true  },
+  { name: "2-3", world: 1, theme: "mountain", len: 6000, scroll: 1.28, sky: "sunset", spawnGap: 120, spawnRamp: 74, enemyRate: 0.58, fireGap: 64, items: true  },
+  // --- 都会 ---
+  { name: "3-1", world: 2, theme: "city",     len: 5000, scroll: 1.08, sky: "day",    spawnGap: 156, spawnRamp: 64, enemyRate: 0.36, fireGap: 86, items: false },
+  { name: "3-2", world: 2, theme: "city",     len: 5600, scroll: 1.20, sky: "sunset", spawnGap: 134, spawnRamp: 70, enemyRate: 0.50, fireGap: 72, items: true  },
+  { name: "3-3", world: 2, theme: "city",     len: 6200, scroll: 1.34, sky: "night",  spawnGap: 116, spawnRamp: 76, enemyRate: 0.60, fireGap: 60, items: true  },
 ];
+// スタート画面で選べるワールド(各worldの先頭コースから開始)
+const WORLDS = [
+  { name: "海ステージ",   theme: "sea",      start: 0, sky: "day" },
+  { name: "山ステージ",   theme: "mountain", start: 3, sky: "day" },
+  { name: "都会ステージ", theme: "city",     start: 6, sky: "night" },
+];
+let menuSel = 0; // タイトルで選択中のワールド
 let stageIndex = 0;
 let STAGE_LEN = STAGES[0].len;
 let GOAL_X = STAGE_LEN;
@@ -346,6 +392,16 @@ let stage = STAGES[0];
 let cameraX, player, obstacles, bullets, particles, items, pShots;
 let cloudsFar, cloudsNear, islandsFar;
 let waves, nextSpawnX, nextItemX, frame, shake, result, flashTimer;
+
+// 現在描画すべきテーマ(タイトルは選択中ワールドをプレビュー)
+function bgTheme() { return state === STATE.TITLE ? WORLDS[menuSel].theme : stage.theme; }
+// このコースがワールドの最終コースか(=次は別ワールド or 末尾)
+function isWorldLast(i) { return i >= STAGES.length - 1 || STAGES[i + 1].world !== STAGES[i].world; }
+
+// タイトルのステージ選択ボタンの矩形(ゲーム座標)
+function menuRect(i) { const w = 176, h = 26; return { x: (W - w) / 2, y: 118 + i * 30, w, h }; }
+// ワールド(ステージ)を選んで開始
+function startWorld(i) { menuSel = i; startStage(WORLDS[i].start, 100); }
 
 // startStage(i, keepBattery): ステージ初期化。keepBatteryで残量を引き継ぐ(ステージ間)
 function startStage(i, keepBattery) {
@@ -416,6 +472,13 @@ function spawnItem(worldX) {
 // ============================================================
 // 背景描画
 // ============================================================
+// 夜空の星(画面固定・一度だけ生成)
+let STARS = null;
+function ensureStars() {
+  if (STARS) return;
+  STARS = [];
+  for (let i = 0; i < 64; i++) STARS.push({ x: Math.random() * W, y: Math.random() * (SEA_Y - 24), b: Math.random() });
+}
 // mode: "day" | "sunset" | "night"
 function drawSky(mode) {
   ctx.fillStyle = mode === "night" ? gSkyNight : mode === "sunset" ? gSkySunset : gSky;
@@ -427,12 +490,28 @@ function drawSky(mode) {
     ctx.fillStyle = COL.sun;
     ctx.beginPath(); ctx.arc(sx, sy, 14, 0, Math.PI * 2); ctx.fill();
   } else if (mode === "sunset") {
-    // 大きな夕日(海に近い低い位置)
+    // 大きな夕日(低い位置)
     const sx = 160, sy = 120;
     glow(sx, sy, 90, "#ff7a3c", 0.45);
     glow(sx, sy, 50, COL.ssSkyHz, 0.7);
     ctx.fillStyle = "#ffd98a";
     ctx.beginPath(); ctx.arc(sx, sy, 26, 0, Math.PI * 2); ctx.fill();
+  } else if (mode === "night") {
+    ensureStars();
+    for (const s of STARS) {
+      const tw = 0.5 + 0.5 * Math.sin(frame * 0.05 + s.b * 9);
+      ctx.globalAlpha = 0.25 + tw * 0.6 * s.b;
+      px(s.x, s.y, 1 + (s.b > 0.82 ? 1 : 0), 1, COL.white);
+    }
+    ctx.globalAlpha = 1;
+    // 月
+    const mx = 248, my = 44;
+    glow(mx, my, 32, "#bcd0ff", 0.4);
+    ctx.fillStyle = "#eef4ff";
+    ctx.beginPath(); ctx.arc(mx, my, 12, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#c4d2ef";
+    ctx.beginPath(); ctx.arc(mx - 3, my - 2, 3, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(mx + 4, my + 3, 2, 0, 7); ctx.fill();
   }
 }
 
@@ -526,9 +605,13 @@ function drawSea(mode) {
   ctx.globalAlpha = 1;
 }
 
-// mode省略時はステージのsky(ゲームオーバーは"night"を明示指定)
+// 疑似乱数(タイル番号→0..1)。手続き的な遠景生成に使用
+function hsh(n) { const x = Math.sin(n * 127.1 + 11.7) * 43758.5453; return x - Math.floor(x); }
+
+// mode省略時はステージ(タイトルは選択ワールド)のsky
 function drawBackground(mode) {
-  if (mode === undefined) mode = stage.sky;
+  const theme = bgTheme();
+  if (mode === undefined) mode = (state === STATE.TITLE ? WORLDS[menuSel].sky : stage.sky);
   drawSky(mode);
   // 遠景雲
   for (const c of cloudsFar) {
@@ -536,18 +619,149 @@ function drawBackground(mode) {
     x = ((x % (W + 120)) + (W + 120)) % (W + 120) - 60;
     drawCloud(x, c.y, c.sz, 0.55);
   }
-  drawFarIslands();
+  // 遠景シルエット(テーマ別)
+  if (theme === "mountain") drawFarMountains(mode);
+  else if (theme === "city") drawFarCity(mode);
+  else drawFarIslands();
   // 近景雲
   for (const c of cloudsNear) {
     let x = c.x - cameraX * c.s;
     x = ((x % (W + 140)) + (W + 140)) % (W + 140) - 70;
     drawCloud(x, c.y, c.sz, 0.9);
   }
-  drawSea(mode);
+  // 地面(テーマ別)
+  if (theme === "mountain") drawMountainGround(mode);
+  else if (theme === "city") drawCityGround(mode);
+  else drawSea(mode);
 
-  // ゴールの陸地
-  const landScreenX = GOAL_X - cameraX;
-  if (landScreenX < W + 60) drawGoalLand(landScreenX);
+  // ゴール(タイトルでは描かない)
+  if (state !== STATE.TITLE) {
+    const sx = GOAL_X - cameraX;
+    if (sx < W + 60) {
+      if (theme === "mountain") drawGoalMountain(sx);
+      else if (theme === "city") drawGoalCity(sx);
+      else drawGoalLand(sx);
+    }
+  }
+}
+
+// ------------------------------------------------------------
+// 山ステージ: 遠景の山並み + 森の地面
+// ------------------------------------------------------------
+function drawFarMountains(mode) {
+  const layers = [
+    { s: 0.16, col: COL.mtnFar,  h: 56,  period: 116, snow: true,  seed: 1 },
+    { s: 0.30, col: COL.mtnMid,  h: 84,  period: 150, snow: true,  seed: 7 },
+    { s: 0.46, col: COL.mtnNear, h: 112, period: 188, snow: false, seed: 13 },
+  ];
+  for (const L of layers) {
+    const first = Math.floor((cameraX * L.s - W) / L.period) - 1;
+    const last  = Math.ceil((cameraX * L.s + W) / L.period) + 1;
+    for (let n = first; n <= last; n++) {
+      const cxp = n * L.period - cameraX * L.s;
+      const hh = L.h * (0.7 + hsh(n + L.seed) * 0.6);
+      const halfW = L.period * 0.66;
+      const apexY = SEA_Y - hh;
+      ctx.fillStyle = L.col;
+      ctx.beginPath();
+      ctx.moveTo(cxp - halfW, SEA_Y);
+      ctx.lineTo(cxp, apexY);
+      ctx.lineTo(cxp + halfW, SEA_Y);
+      ctx.closePath(); ctx.fill();
+      if (L.snow && hh > 42) {
+        const sw = halfW * 0.30, sy = apexY + hh * 0.22;
+        ctx.fillStyle = COL.snow;
+        ctx.beginPath();
+        ctx.moveTo(cxp - sw, sy); ctx.lineTo(cxp, apexY); ctx.lineTo(cxp + sw, sy);
+        ctx.lineTo(cxp + sw * 0.4, sy + 3); ctx.lineTo(cxp, sy - 1); ctx.lineTo(cxp - sw * 0.4, sy + 3);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+  }
+}
+function pineSil(x, baseY, h, col) {
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(x - h * 0.5, baseY); ctx.lineTo(x, baseY - h); ctx.lineTo(x + h * 0.5, baseY);
+  ctx.closePath(); ctx.fill();
+}
+function forestRow(baseY, s, h, gap, col) {
+  const off = ((cameraX * s) % gap + gap) % gap;
+  for (let x = -gap - off; x < W + gap; x += gap) {
+    const j = (Math.sin((x + cameraX * s) * 0.07) + 1) * 0.5;
+    pineSil(x + gap * 0.5, baseY, h * (0.7 + j * 0.6), col);
+  }
+}
+function drawMountainGround(mode) {
+  const g = ctx.createLinearGradient(0, SEA_Y, 0, H);
+  g.addColorStop(0, COL.grass);
+  g.addColorStop(0.5, COL.grassSh);
+  g.addColorStop(1, COL.rockSh);
+  ctx.fillStyle = g; ctx.fillRect(0, SEA_Y, W, H - SEA_Y);
+  forestRow(SEA_Y + 2,  0.45, 12, 15, COL.pineSh);
+  forestRow(SEA_Y + 9,  0.8,  15, 14, COL.pine);
+  forestRow(SEA_Y + 19, 1.2,  19, 13, COL.pineHi);
+  // 近景の岩
+  ctx.fillStyle = COL.rock;
+  const off = ((cameraX * 1.0) % 70 + 70) % 70;
+  for (let x = -off; x < W + 60; x += 70) {
+    px(x + 8, H - 10, 16, 10, COL.rock); px(x + 8, H - 10, 16, 2, COL.rockHi);
+  }
+}
+
+// ------------------------------------------------------------
+// 都会ステージ: 遠景スカイライン + 道路と近景ビル
+// ------------------------------------------------------------
+function drawFarCity(mode) {
+  const lit = mode === "night";
+  const period = 34, s = 0.22;
+  const first = Math.floor((cameraX * s) / period) - 1;
+  const last  = first + Math.ceil(W / period) + 3;
+  for (let n = first; n <= last; n++) {
+    const h = 40 + hsh(n * 1.3) * 60;
+    const w = 24 + hsh(n * 2.1) * 8;
+    const x = n * period - cameraX * s;
+    ctx.fillStyle = COL.bldgFar;
+    ctx.fillRect(x, SEA_Y - h, w, h);
+    // 窓(夜のみ淡く点灯)
+    if (lit) {
+      for (let wy = SEA_Y - h + 4; wy < SEA_Y - 3; wy += 7)
+        for (let wx = x + 3; wx < x + w - 3; wx += 7)
+          if (hsh(wx * 0.4 + wy + n) > 0.55) { ctx.globalAlpha = 0.6; px(wx, wy, 2, 3, COL.winLit); ctx.globalAlpha = 1; }
+    }
+  }
+}
+function cityRow(baseY, s, col, hi, mode) {
+  const lit = mode === "night";
+  const period = 32;
+  const first = Math.floor((cameraX * s) / period) - 1;
+  const last  = first + Math.ceil(W / period) + 3;
+  for (let n = first; n <= last; n++) {
+    const h = 26 + hsh(n * 1.7 + 3) * 30;
+    const w = 22 + hsh(n * 2.3 + 1) * 8;
+    const x = n * period - cameraX * s;
+    ctx.fillStyle = col;
+    ctx.fillRect(x, baseY - h, w, h);
+    px(x, baseY - h, w, 1, hi);
+    // 窓
+    for (let wy = baseY - h + 4; wy < baseY - 4; wy += 6)
+      for (let wx = x + 3; wx < x + w - 3; wx += 6) {
+        const on = lit ? hsh(wx * 0.3 + wy * 0.7 + n) > 0.45 : false;
+        px(wx, wy, 3, 3, on ? COL.winLit : COL.winDim);
+      }
+  }
+}
+function drawCityGround(mode) {
+  // 空気遠近のビル(中景)
+  cityRow(206, 0.55, COL.bldgSh, COL.bldg, mode);
+  // 道路
+  ctx.fillStyle = COL.road; ctx.fillRect(0, 206, W, H - 206);
+  px(0, 206, W, 4, COL.sidewalk); px(0, 210, W, 1, COL.bldgSh);
+  // 車線(破線スクロール)
+  const gap = 24, dash = 13, off = ((cameraX * 1.0) % gap + gap) % gap;
+  for (let x = -gap - off; x < W + gap; x += gap) px(x + gap * 0.5, 226, dash, 2, COL.roadLine);
+  // 近景ビル(歩道の上)
+  cityRow(206, 0.9, COL.bldg, COL.bldgHi, mode);
 }
 
 function drawGoalLand(sx) {
@@ -582,8 +796,11 @@ function drawGoalLand(sx) {
   drawPalm(sx + 86, groundY - 16, 0.8);
   drawLighthouse(sx + 58, groundY - 22);
 
-  // GOAL 旗(なびく)
-  const fx = sx + 22, fyTop = groundY - 96;
+  drawGoalFlag(sx + 22, groundY - 96);
+}
+
+// GOAL 旗(なびく)。各テーマ共通
+function drawGoalFlag(fx, fyTop) {
   px(fx, fyTop, 2, 60, COL.metalSh);
   px(fx, fyTop, 2, 60, COL.metal);
   const wave = Math.sin(frame * 0.15) * 2;
@@ -599,6 +816,90 @@ function drawGoalLand(sx) {
   ctx.textBaseline = "top";
   ctx.textAlign = "left";
   ctx.fillText("GOAL", fx + 5, fyTop + 4);
+}
+
+// 山ステージのゴール: 雪の頂上 + 山小屋
+function drawGoalMountain(sx) {
+  const groundY = SEA_Y - 4;
+  const right = W - sx + 80;
+  // 背後の高い雪峰
+  ctx.fillStyle = COL.mtnNear;
+  ctx.beginPath();
+  ctx.moveTo(sx + 20, groundY); ctx.lineTo(sx + 70, groundY - 96); ctx.lineTo(sx + 140, groundY);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = COL.snow;
+  ctx.beginPath();
+  ctx.moveTo(sx + 70, groundY - 96); ctx.lineTo(sx + 52, groundY - 64); ctx.lineTo(sx + 62, groundY - 60);
+  ctx.lineTo(sx + 70, groundY - 70); ctx.lineTo(sx + 80, groundY - 60); ctx.lineTo(sx + 88, groundY - 64);
+  ctx.closePath(); ctx.fill();
+  // 手前の平らな雪原(着陸場)
+  const g = ctx.createLinearGradient(0, groundY - 6, 0, H);
+  g.addColorStop(0, COL.snow); g.addColorStop(0.35, "#cdd9ee"); g.addColorStop(1, COL.rockSh);
+  ctx.fillStyle = g;
+  ctx.fillRect(sx, groundY - 2, right, H - groundY + 2);
+  px(sx, groundY - 3, right, 2, COL.white);
+  // 松(数本)
+  pineTreeBig(sx + 30, groundY - 2, 1.0);
+  pineTreeBig(sx + 120, groundY - 2, 0.8);
+  // 山小屋
+  drawCabin(sx + 86, groundY - 2);
+  drawGoalFlag(sx + 20, groundY - 92);
+}
+function pineTreeBig(x, baseY, sc) {
+  px(x - 2, baseY - 6 * sc, 4, 8 * sc, COL.trunkSh);
+  for (let i = 0; i < 3; i++) {
+    const ly = baseY - 6 * sc - i * 9 * sc, w = (18 - i * 4) * sc;
+    ctx.fillStyle = i === 0 ? COL.pine : COL.pineHi;
+    ctx.beginPath();
+    ctx.moveTo(x - w, ly); ctx.lineTo(x, ly - 14 * sc); ctx.lineTo(x + w, ly);
+    ctx.closePath(); ctx.fill();
+  }
+  // 雪
+  ctx.globalAlpha = 0.7; px(x - 6 * sc, baseY - 28 * sc, 12 * sc, 2, COL.snow); ctx.globalAlpha = 1;
+}
+function drawCabin(x, baseY) {
+  // 壁
+  const g = ctx.createLinearGradient(x, baseY - 18, x, baseY);
+  g.addColorStop(0, COL.trunk); g.addColorStop(1, COL.trunkSh);
+  ctx.fillStyle = g; ctx.fillRect(x, baseY - 16, 26, 16);
+  // 屋根(雪)
+  ctx.fillStyle = COL.rockSh;
+  ctx.beginPath(); ctx.moveTo(x - 4, baseY - 16); ctx.lineTo(x + 13, baseY - 27); ctx.lineTo(x + 30, baseY - 16); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = COL.snow;
+  ctx.beginPath(); ctx.moveTo(x - 4, baseY - 16); ctx.lineTo(x + 13, baseY - 27); ctx.lineTo(x + 30, baseY - 16); ctx.lineTo(x + 26, baseY - 14); ctx.lineTo(x + 13, baseY - 23); ctx.lineTo(x, baseY - 14); ctx.closePath(); ctx.fill();
+  // ドア・窓
+  px(x + 4, baseY - 11, 6, 11, COL.trunkSh);
+  px(x + 15, baseY - 12, 6, 6, COL.glass);
+  // 煙突の煙
+  px(x + 20, baseY - 24, 3, 6, COL.rockSh);
+  ctx.globalAlpha = 0.4; ctx.fillStyle = COL.cloud;
+  for (let i = 0; i < 3; i++) ctx.fillRect(x + 21 - i, baseY - 30 - i * 5 + Math.sin(frame * 0.1 + i) * 2, 4 + i, 3);
+  ctx.globalAlpha = 1;
+}
+
+// 都会ステージのゴール: 屋上ヘリポート
+function drawGoalCity(sx) {
+  const groundY = SEA_Y - 4;
+  const right = W - sx + 80;
+  // 背の高いビル
+  const g = ctx.createLinearGradient(sx, 0, sx + right, 0);
+  g.addColorStop(0, COL.bldg); g.addColorStop(1, COL.bldgSh);
+  ctx.fillStyle = g; ctx.fillRect(sx + 8, groundY - 2, right, H - groundY + 2);
+  // 窓
+  for (let wy = groundY + 6; wy < H - 2; wy += 9)
+    for (let wx = sx + 14; wx < sx + right - 4; wx += 10)
+      px(wx, wy, 5, 5, hsh(wx + wy) > 0.5 ? COL.winLit : COL.winDim);
+  // 屋上(着陸場)
+  ctx.fillStyle = COL.bldgHi; ctx.fillRect(sx + 4, groundY - 6, right, 8);
+  px(sx + 4, groundY - 7, right, 1, COL.white);
+  // ヘリポートH
+  ctx.fillStyle = "#1a1f2c";
+  ctx.beginPath(); ctx.arc(sx + 60, groundY + 1, 18, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = COL.white;
+  px(sx + 50, groundY - 12, 3, 12, COL.white);
+  px(sx + 66, groundY - 12, 3, 12, COL.white);
+  px(sx + 53, groundY - 7, 13, 3, COL.white);
+  drawGoalFlag(sx + 18, groundY - 92);
 }
 
 function drawPalm(x, y, sc) {
@@ -761,50 +1062,24 @@ function roundPath(x, y, w, h, r) {
 // ============================================================
 // 敵・障害物
 // ============================================================
+// 障害物/敵は「挙動タイプ(mine=浮遊/buoy=地上/bird=飛行)」は共通で、
+// 見た目だけテーマ(海/山/都会)に合わせて切り替える。
 function drawEntity(o) {
   const x = o.x - cameraX;
   if (x < -50 || x > W + 50) return;
+  const th = stage.theme;
   if (o.type === "mine") {
-    const cx = x + 9, cy = o.y + 9;
-    // チェーン
-    ctx.strokeStyle = COL.metalSh; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(cx, cy + 8); ctx.lineTo(cx + Math.sin(frame * 0.05) * 3, cy + 22); ctx.stroke();
-    // スパイク
-    ctx.fillStyle = COL.mineSh;
-    for (let a = 0; a < 8; a++) {
-      const ang = a / 8 * Math.PI * 2;
-      const sxp = cx + Math.cos(ang) * 8, syp = cy + Math.sin(ang) * 8;
-      px(sxp - 1.5, syp - 1.5, 4, 4, COL.mineSh);
-    }
-    // 球体(放射グラデ)
-    const g = ctx.createRadialGradient(cx - 3, cy - 3, 1, cx, cy, 10);
-    g.addColorStop(0, COL.mineHi);
-    g.addColorStop(0.5, COL.mine);
-    g.addColorStop(1, COL.mineSh);
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(cx, cy, 9, 0, Math.PI * 2); ctx.fill();
-    // 点滅ランプ
-    if (Math.floor(frame / 8) % 2 === 0) { glow(cx + 2, cy - 1, 6, COL.battBad, 0.8); px(cx + 1, cy - 2, 2, 2, COL.battBad); }
+    if (th === "mountain") drawRock(x, o);
+    else if (th === "city") drawBombDrone(x, o);
+    else drawMineSea(x, o);
   } else if (o.type === "buoy") {
-    const bob = Math.sin(o.bob + frame * 0.08) * 2;
-    const by = o.y + bob, bx = x + 4;
-    // 反射(海面)
-    ctx.globalAlpha = 0.25; px(bx + 1, SEA_Y + 2, 12, 8, COL.buoy); ctx.globalAlpha = 1;
-    const g = ctx.createLinearGradient(bx, 0, bx + 14, 0);
-    g.addColorStop(0, COL.buoyHi); g.addColorStop(0.5, COL.buoy); g.addColorStop(1, COL.buoySh);
-    rrect(bx - 0.5, by - 0.5, 15, 21, 4, COL.ink);
-    ctx.save(); ctx.beginPath(); roundPath(bx, by, 14, 20, 3); ctx.clip();
-    ctx.fillStyle = g; ctx.fillRect(bx, by, 14, 20);
-    px(bx, by + 6, 14, 4, COL.white);
-    px(bx, by + 13, 14, 4, COL.white);
-    ctx.restore();
-    px(bx + 4, by - 6, 6, 7, COL.metal);
-    px(bx + 4, by - 6, 6, 2, COL.metalHi);
-    px(bx + 6, by - 11, 2, 5, COL.metalSh);
-    glow(bx + 7, by - 11, 5, COL.battBad, Math.floor(frame / 14) % 2 ? 0.7 : 0.2);
+    if (th === "mountain") drawPineObstacle(x, o);
+    else if (th === "city") drawAntenna(x, o);
+    else drawBuoySea(x, o);
   } else if (o.type === "bird") {
-    drawEnemyDrone(x, o.y, o.rotorPhase);
-    // 残りHP表示(2以上のとき小さなピップ)
+    if (th === "mountain") drawEagle(x, o.y, o.rotorPhase);
+    else if (th === "city") drawCopter(x, o.y, o.rotorPhase);
+    else drawEnemyDrone(x, o.y, o.rotorPhase);
     if (o.hp >= 2) { for (let i = 0; i < o.hp; i++) px(x + 4 + i * 5, o.y - 7, 3, 2, COL.battGood); }
   }
   // 被弾フラッシュ(白くハイライト)
@@ -814,6 +1089,143 @@ function drawEntity(o) {
     ctx.fillRect(x - 2, o.y - 6, o.w + 6, o.h + 10);
     ctx.globalAlpha = 1;
   }
+}
+
+// --- 海: 機雷 / ブイ / ドローン ---
+function drawMineSea(x, o) {
+  const cx = x + 9, cy = o.y + 9;
+  ctx.strokeStyle = COL.metalSh; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx, cy + 8); ctx.lineTo(cx + Math.sin(frame * 0.05) * 3, cy + 22); ctx.stroke();
+  ctx.fillStyle = COL.mineSh;
+  for (let a = 0; a < 8; a++) {
+    const ang = a / 8 * Math.PI * 2;
+    const sxp = cx + Math.cos(ang) * 8, syp = cy + Math.sin(ang) * 8;
+    px(sxp - 1.5, syp - 1.5, 4, 4, COL.mineSh);
+  }
+  const g = ctx.createRadialGradient(cx - 3, cy - 3, 1, cx, cy, 10);
+  g.addColorStop(0, COL.mineHi); g.addColorStop(0.5, COL.mine); g.addColorStop(1, COL.mineSh);
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(cx, cy, 9, 0, Math.PI * 2); ctx.fill();
+  if (Math.floor(frame / 8) % 2 === 0) { glow(cx + 2, cy - 1, 6, COL.battBad, 0.8); px(cx + 1, cy - 2, 2, 2, COL.battBad); }
+}
+function drawBuoySea(x, o) {
+  const bob = Math.sin(o.bob + frame * 0.08) * 2;
+  const by = o.y + bob, bx = x + 4;
+  ctx.globalAlpha = 0.25; px(bx + 1, SEA_Y + 2, 12, 8, COL.buoy); ctx.globalAlpha = 1;
+  const g = ctx.createLinearGradient(bx, 0, bx + 14, 0);
+  g.addColorStop(0, COL.buoyHi); g.addColorStop(0.5, COL.buoy); g.addColorStop(1, COL.buoySh);
+  rrect(bx - 0.5, by - 0.5, 15, 21, 4, COL.ink);
+  ctx.save(); ctx.beginPath(); roundPath(bx, by, 14, 20, 3); ctx.clip();
+  ctx.fillStyle = g; ctx.fillRect(bx, by, 14, 20);
+  px(bx, by + 6, 14, 4, COL.white);
+  px(bx, by + 13, 14, 4, COL.white);
+  ctx.restore();
+  px(bx + 4, by - 6, 6, 7, COL.metal);
+  px(bx + 4, by - 6, 6, 2, COL.metalHi);
+  px(bx + 6, by - 11, 2, 5, COL.metalSh);
+  glow(bx + 7, by - 11, 5, COL.battBad, Math.floor(frame / 14) % 2 ? 0.7 : 0.2);
+}
+
+// --- 山: 落石(浮遊) / 大木(地上) / ワシ(飛行) ---
+function drawRock(x, o) {
+  const cx = x + 9, cy = o.y + 9 + Math.sin(frame * 0.05 + o.phase) * 1;
+  // ごつごつした岩
+  const g = ctx.createRadialGradient(cx - 3, cy - 3, 1, cx, cy, 11);
+  g.addColorStop(0, COL.rockHi); g.addColorStop(0.5, COL.rock); g.addColorStop(1, COL.rockSh);
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(cx - 9, cy + 2); ctx.lineTo(cx - 6, cy - 7); ctx.lineTo(cx + 2, cy - 9);
+  ctx.lineTo(cx + 9, cy - 4); ctx.lineTo(cx + 8, cy + 5); ctx.lineTo(cx + 1, cy + 9); ctx.lineTo(cx - 7, cy + 7);
+  ctx.closePath(); ctx.fill();
+  // 面のハイライト/影
+  ctx.fillStyle = COL.rockHi; ctx.globalAlpha = 0.5; px(cx - 4, cy - 5, 5, 2, COL.rockHi); ctx.globalAlpha = 1;
+  px(cx - 2, cy + 2, 6, 2, COL.rockSh);
+}
+function drawPineObstacle(x, o) {
+  const bx = x + 10, baseY = o.y + 30;
+  // 幹
+  px(bx - 2, baseY - 12, 4, 12, COL.trunkSh);
+  // 三段の葉
+  for (let i = 0; i < 3; i++) {
+    const ly = baseY - 10 - i * 9, w = 14 - i * 3;
+    ctx.fillStyle = i === 1 ? COL.pine : COL.pineHi;
+    ctx.beginPath();
+    ctx.moveTo(bx - w, ly); ctx.lineTo(bx, ly - 13); ctx.lineTo(bx + w, ly);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = COL.pineSh; px(bx - w + 2, ly - 1, w * 2 - 4, 1, COL.pineSh);
+  }
+  px(bx - 1, baseY - 34, 2, 4, COL.pineHi);
+}
+function drawEagle(x, y, ph) {
+  const cx = x + 11, cy = y + 8;
+  const flap = Math.sin(ph * 0.5) * 6;
+  // 翼
+  ctx.fillStyle = COL.rockSh;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy); ctx.lineTo(cx - 13, cy - 2 - flap); ctx.lineTo(cx - 6, cy + 2); ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx, cy); ctx.lineTo(cx + 13, cy - 2 - flap); ctx.lineTo(cx + 6, cy + 2); ctx.closePath(); ctx.fill();
+  // 胴
+  ctx.fillStyle = COL.trunk;
+  ctx.beginPath(); ctx.ellipse(cx, cy + 1, 5, 4, 0, 0, Math.PI * 2); ctx.fill();
+  // 頭(白)+くちばし
+  px(cx + 3, cy - 3, 5, 4, COL.snow);
+  px(cx + 7, cy - 1, 3, 2, COL.taxi);
+  px(cx + 5, cy - 2, 1, 1, COL.ink); // 目
+}
+
+// --- 都会: 爆弾ドローン(浮遊) / アンテナ塔(地上) / 攻撃ヘリ(飛行) ---
+function drawBombDrone(x, o) {
+  const cx = x + 9, cy = o.y + 9 + Math.sin(frame * 0.05 + o.phase) * 1;
+  // プロペラ
+  const spin = Math.floor(frame * 0.6) % 2 === 0;
+  ctx.fillStyle = COL.metal;
+  if (spin) px(cx - 11, cy - 8, 22, 2, COL.metal); else px(cx - 3, cy - 9, 6, 2, COL.metal);
+  px(cx - 9, cy - 8, 2, 3, COL.metalSh); px(cx + 7, cy - 8, 2, 3, COL.metalSh);
+  // 本体(黒い爆弾)
+  const g = ctx.createRadialGradient(cx - 2, cy - 2, 1, cx, cy, 9);
+  g.addColorStop(0, "#4a4f60"); g.addColorStop(1, "#16181f");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(cx, cy + 1, 8, 0, Math.PI * 2); ctx.fill();
+  // 点滅ランプ
+  if (Math.floor(frame / 7) % 2 === 0) { glow(cx, cy + 1, 6, COL.battBad, 0.8); px(cx - 1, cy, 2, 2, COL.battBad); }
+}
+function drawAntenna(x, o) {
+  const bx = x + 10, baseY = o.y + 30;
+  // 鉄塔(トラス)
+  ctx.strokeStyle = COL.metal; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(bx - 6, baseY); ctx.lineTo(bx, baseY - 30); ctx.lineTo(bx + 6, baseY);
+  ctx.moveTo(bx - 4, baseY - 8); ctx.lineTo(bx + 4, baseY - 8);
+  ctx.moveTo(bx - 2, baseY - 18); ctx.lineTo(bx + 2, baseY - 18);
+  ctx.stroke();
+  // 先端の赤ランプ
+  glow(bx, baseY - 32, 5, COL.battBad, Math.floor(frame / 14) % 2 ? 0.8 : 0.25);
+  px(bx - 1, baseY - 33, 2, 3, COL.battBad);
+}
+function drawCopter(x, y, ph) {
+  const cx = x + 11, cy = y + 8;
+  // メインローター
+  const spin = Math.floor(ph) % 2 === 0;
+  ctx.fillStyle = COL.metalHi; ctx.globalAlpha = 0.35;
+  ctx.beginPath(); ctx.ellipse(cx, y - 4, 14, 2, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+  if (spin) px(cx - 14, y - 5, 28, 2, COL.metalSh); else px(cx - 4, y - 6, 8, 2, COL.metalSh);
+  px(cx - 1, y - 6, 2, 3, COL.metal);
+  // 機体
+  const g = ctx.createLinearGradient(0, y, 0, y + 12);
+  g.addColorStop(0, "#5a6070"); g.addColorStop(1, "#2a2e3a");
+  ctx.fillStyle = g;
+  rrect(cx - 10, y, 18, 11, 4, COL.ink);
+  ctx.save(); ctx.beginPath(); roundPath(cx - 9.5, y + 0.5, 17, 10, 3); ctx.clip();
+  ctx.fillStyle = g; ctx.fillRect(cx - 10, y, 18, 11); ctx.restore();
+  // テールブーム
+  px(cx + 7, y + 3, 10, 2, COL.metalSh);
+  px(cx + 16, y, 2, 6, COL.metalSh);
+  // コックピット窓
+  px(cx - 7, y + 2, 5, 4, COL.glass);
+  // 砲(赤目)
+  glow(cx - 7, y + 8, 5, COL.bulletC, 0.5);
+  px(cx - 8, y + 7, 4, 3, COL.bulletC);
 }
 
 // 武器アイテム(クレート)
@@ -1226,7 +1638,9 @@ function updateClear() {
     if (Math.abs(dx) < 1.5 && Math.abs(dy) < 1.5) {
       player.landed = true;
       player.x = LAND_X; player.y = LAND_Y; player.tilt = 0;
-      addSplash(cameraX + player.x + player.w / 2, SEA_Y - 4); // 着地砂ぼこり風
+      // 着地エフェクト(海=水しぶき / 山・都会=砂ぼこり)
+      if (stage.theme === "sea") addSplash(cameraX + player.x + player.w / 2, SEA_Y - 4);
+      else addExplosion(cameraX + player.x + player.w / 2, LAND_Y + 16, COL.cloudSh, 10);
       shake = 6;
       player.pilotX = player.x + 4;
       player.pilotY = player.y + 4;
@@ -1304,34 +1718,49 @@ function drawBigText(text, cx, cy, c1, c2, size) {
 // 画面: タイトル
 // ============================================================
 function drawTitle() {
-  drawBackground("day");
-  const ty = 118 + Math.sin(frame * 0.05) * 8;
+  drawBackground(); // 選択中ワールドのテーマをプレビュー
+  const ty = 84 + Math.sin(frame * 0.05) * 5;
   drawTaxi2(W / 2 - 14, ty, frame * 0.6, false, false, Math.sin(frame * 0.05) * 0.06);
   drawParticles();
 
-  // ロゴ枠グロー
-  glow(W / 2, 60, 120, "#2a5cff", 0.18);
-  drawBigText("DRONE TAXI", W / 2, 56, COL.taxiHi, COL.taxiSh, 34);
+  glow(W / 2, 40, 110, "#2a5cff", 0.18);
+  drawBigText("DRONE TAXI", W / 2, 38, COL.taxiHi, COL.taxiSh, 28);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.font = "bold 11px 'Trebuchet MS', sans-serif";
+  ctx.font = "bold 10px 'Trebuchet MS', sans-serif";
   ctx.fillStyle = COL.white;
-  ctx.fillText("～ 海上ステージ 1-1 → 1-3 ～", W / 2, 84);
+  ctx.fillText("ステージをえらんでスタート", W / 2, 106);
 
-  if (Math.floor(frame / 24) % 2 === 0) {
-    glow(W / 2, 172, 80, COL.battWarn, 0.15);
-    ctx.fillStyle = COL.white;
-    ctx.font = "bold 13px 'Trebuchet MS', sans-serif";
-    ctx.fillText("PRESS  ENTER  /  SPACE", W / 2, 172);
-  }
-  ctx.font = "9px 'Trebuchet MS', sans-serif";
-  ctx.fillStyle = COL.foam2;
-  ctx.fillText("MOVE: ARROWS/WASD   BOOST: SHIFT/Z   FIRE: K/X", W / 2, 202);
-  ctx.fillStyle = "#bcd6ff";
-  ctx.fillText("ゴールの陸地を目指せ！ ★を取ると敵を撃墜できる！", W / 2, 218);
-  ctx.fillStyle = "#9bb6e6";
+  for (let i = 0; i < WORLDS.length; i++) drawMenuOption(i);
+
+  ctx.textAlign = "center";
   ctx.font = "8px 'Trebuchet MS', sans-serif";
-  ctx.fillText("1-2 以降は武器アイテム出現", W / 2, 230);
+  ctx.fillStyle = "#bcd6ff";
+  ctx.fillText("各ステージ 1コース目は武器なしのやさしいコース", W / 2, 212);
+  ctx.fillStyle = "#9bb6e6";
+  ctx.fillText("スティックで移動 / ★を取ると敵を撃墜 / 上下キーでも選択", W / 2, 226);
   ctx.textAlign = "left";
+}
+function drawMenuOption(i) {
+  const r = menuRect(i), sel = i === menuSel, wn = WORLDS[i];
+  if (sel) glow(W / 2, r.y + r.h / 2, 80, "#ffd23f", 0.16);
+  ctx.globalAlpha = sel ? 0.95 : 0.6;
+  rrect(r.x, r.y, r.w, r.h, 6, sel ? "#1a2a52" : "#0c1428");
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 2; ctx.strokeStyle = sel ? COL.battWarn : "rgba(255,255,255,0.25)";
+  ctx.beginPath(); roundPath(r.x, r.y, r.w, r.h, 6); ctx.stroke();
+  // テーマ色アイコン
+  const ic = wn.theme === "sea" ? COL.seaMid : wn.theme === "mountain" ? COL.pine : COL.bldg;
+  rrect(r.x + 7, r.y + 6, 14, 14, 3, ic);
+  px(r.x + 7, r.y + 6, 14, 2, COL.white);
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.font = "bold 12px 'Trebuchet MS', sans-serif";
+  ctx.fillStyle = sel ? COL.white : "#b8c6e0";
+  ctx.fillText("ステージ" + (i + 1) + "  " + wn.name, r.x + 28, r.y + r.h / 2 - 1);
+  ctx.font = "8px 'Trebuchet MS', sans-serif"; ctx.fillStyle = "#8aa0c8";
+  ctx.textAlign = "right";
+  ctx.fillText(STAGES[wn.start].name + "〜" + STAGES[wn.start + 2].name, r.x + r.w - 8, r.y + r.h / 2);
+  ctx.textAlign = "left";
+  if (sel && Math.floor(frame / 20) % 2 === 0) { ctx.fillStyle = COL.battWarn; ctx.font = "bold 11px 'Trebuchet MS', sans-serif"; ctx.fillText("▶", r.x - 13, r.y + r.h / 2); }
 }
 
 // ============================================================
@@ -1369,11 +1798,11 @@ function drawClear() {
   if (player.landed) drawPilot(player.pilotX, player.pilotY, player.pilotPhase);
   drawParticles();
 
-  const isLast = stageIndex >= STAGES.length - 1;
+  const isLast = isWorldLast(stageIndex); // ワールド最終コース
   // 上部にだけ帯を敷き、着陸地点(下半分)は隠さない
   ctx.fillStyle = "rgba(0,0,0,0.40)"; ctx.fillRect(0, 40, W, 58);
   glow(W / 2, 66, 130, "#ffd23f", 0.18);
-  const title = isLast && player.landed ? "ALL CLEAR!" : "STAGE " + stage.name + " CLEAR!";
+  const title = isLast && player.landed ? WORLDS[stage.world].name + " クリア!" : "STAGE " + stage.name + " CLEAR!";
   drawBigText(title, W / 2, 64, COL.taxiHi, COL.taxiSh, 24);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.font = "bold 11px 'Trebuchet MS', sans-serif";
@@ -1387,7 +1816,7 @@ function drawClear() {
     ctx.font = "bold 12px 'Trebuchet MS', sans-serif";
     ctx.fillStyle = COL.white;
     // 文字背景の小帯(視認性)
-    const msg = isLast ? "PRESS ENTER" : "PRESS ENTER で次のステージへ ▶";
+    const msg = isLast ? "PRESS ENTER でタイトルへ" : "PRESS ENTER で次のコースへ ▶";
     const tw = ctx.measureText(msg).width;
     ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(W / 2 - tw / 2 - 6, 156, tw + 12, 16);
     ctx.fillStyle = COL.white;
@@ -1536,10 +1965,17 @@ function render() {
 
 function update() {
   switch (state) {
-    case STATE.TITLE:    frame++; if (tapAnyConfirm()) { startStage(0, 100); } break;
+    case STATE.TITLE:
+      frame++;
+      // キーボードでもステージ選択可能(タッチ/マウスはonDownで直接開始)
+      if (consume("ArrowUp") || consume("w"))   menuSel = (menuSel + WORLDS.length - 1) % WORLDS.length;
+      if (consume("ArrowDown") || consume("s")) menuSel = (menuSel + 1) % WORLDS.length;
+      if (consume("Enter") || consume(" ") || consume("z")) startWorld(menuSel);
+      uiConfirm = false; // タイトルはオプション選択で開始(画面タップ即スタートはしない)
+      break;
     case STATE.PLAY:     updatePlay(); break;
     case STATE.FALLING:  updateFalling(); break;
-    case STATE.GAMEOVER: frame++; if (tapAnyConfirm()) { stageIndex = 0; stage = STAGES[0]; STAGE_LEN = stage.len; GOAL_X = STAGE_LEN; SCROLL_BASE = stage.scroll; state = STATE.TITLE; frame = 0; } break;
+    case STATE.GAMEOVER: frame++; if (tapAnyConfirm()) { state = STATE.TITLE; frame = 0; } break;
     case STATE.CLEAR:
       updateClear();
       // 着陸＆降車が一段落するまでは、プレイ中の決定入力/タップを捨てる(誤発進防止)
@@ -1547,12 +1983,10 @@ function update() {
       if (!clearReady) {
         consume("Enter"); consume(" "); consume("z"); uiConfirm = false;
       } else if (tapAnyConfirm()) {
-        if (stageIndex < STAGES.length - 1) {
-          startStage(stageIndex + 1, 100); // 次ステージは満タンから
+        if (!isWorldLast(stageIndex)) {
+          startStage(stageIndex + 1, 100); // 同じワールドの次コースへ(満タン)
         } else {
-          // 全ステージクリア → タイトルへ
-          stageIndex = 0; stage = STAGES[0]; STAGE_LEN = stage.len; GOAL_X = STAGE_LEN; SCROLL_BASE = stage.scroll;
-          state = STATE.TITLE; frame = 0;
+          state = STATE.TITLE; frame = 0; // ワールドクリア → タイトルへ
         }
       }
       break;
