@@ -688,14 +688,16 @@ function drawTaxi2(x, y, rotorPhase, boosting, blink, tilt, landed) {
     px(mx - 1, -7, 2, 3, COL.metalHi);
   }
 
-  // ブースト炎
+  // ブースト炎(大きく・明るく)
   if (boosting) {
     const f = Math.random();
-    glow(-1, 9, 9 + f * 6, COL.bulletC, 0.55);
+    glow(-4, 9, 16 + f * 10, COL.bulletC, 0.7);
     ctx.fillStyle = COL.bulletC;
-    ctx.beginPath(); ctx.moveTo(1, 5); ctx.lineTo(-12 - f * 6, 9); ctx.lineTo(1, 13); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(2, 4); ctx.lineTo(-22 - f * 12, 9); ctx.lineTo(2, 14); ctx.fill();
     ctx.fillStyle = COL.battWarn;
-    ctx.beginPath(); ctx.moveTo(1, 6); ctx.lineTo(-7 - f * 4, 9); ctx.lineTo(1, 12); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(2, 5); ctx.lineTo(-13 - f * 8, 9); ctx.lineTo(2, 13); ctx.fill();
+    ctx.fillStyle = COL.white;
+    ctx.beginPath(); ctx.moveTo(2, 7); ctx.lineTo(-5 - f * 4, 9); ctx.lineTo(2, 11); ctx.fill();
   }
 
   // 着陸脚
@@ -1014,11 +1016,13 @@ function updatePlay() {
   if (flashTimer > 0) flashTimer--;
   if (player.invuln > 0) player.invuln--;
 
-  if (cameraX < GOAL_X) { cameraX += SCROLL_BASE; if (cameraX > GOAL_X) cameraX = GOAL_X; }
-
   const boosting = (held("Shift", "z") || touch.boost) && player.battery > 0;
   player.boost = boosting;
-  const speed = boosting ? 2.9 : 1.8;
+  // ブースト中は背景スクロールも加速して「速くなった感」を出す
+  const scroll = SCROLL_BASE + (boosting ? SCROLL_BASE * 1.4 : 0);
+  if (cameraX < GOAL_X) { cameraX += scroll; if (cameraX > GOAL_X) cameraX = GOAL_X; }
+
+  const speed = boosting ? 3.4 : 1.8;
   let dyForTilt = 0;
 
   if (touch.move.active) {
@@ -1027,7 +1031,7 @@ function updatePlay() {
     let ddx = touch.move.gx - cx;
     let ddy = touch.move.gy - cy;
     const dist = Math.hypot(ddx, ddy);
-    const maxStep = speed * 1.6; // 指追従の最大移動量/フレーム
+    const maxStep = speed; // 指追従の最大移動量/フレーム(キーボードと同等にしてダッシュ感を排除)
     if (dist > 0.5) {
       const step = Math.min(dist, maxStep);
       player.x += ddx / dist * step;
@@ -1231,6 +1235,7 @@ function startClear() {
 }
 function updateClear() {
   frame++; waves++; clearTimer++;
+  if (shake > 0) shake--;
   player.rotorPhase += player.landed ? 0.15 : 0.6;
 
   if (!player.landed) {
@@ -1468,6 +1473,21 @@ function drawFireButton() {
   ctx.textAlign = "left";
 }
 
+// ブースト中の速度線(横に流れる白いストリーク)
+function drawSpeedLines() {
+  ctx.save();
+  ctx.fillStyle = COL.white;
+  for (let i = 0; i < 16; i++) {
+    const ly = 28 + ((i * 37) % (SEA_Y - 36));
+    const phase = (frame * 28 + i * 53) % (W + 160);
+    const lx = W + 80 - phase;
+    const len = 22 + (i % 4) * 12;
+    ctx.globalAlpha = 0.10 + (i % 3) * 0.05;
+    ctx.fillRect(lx, ly, len, 1 + (i % 2));
+  }
+  ctx.restore();
+}
+
 // ============================================================
 // メインループ
 // ============================================================
@@ -1485,6 +1505,7 @@ function render() {
     for (const s of pShots) drawPShot(s);
     const blink = state === STATE.PLAY && player.invuln > 0 && Math.floor(frame / 4) % 2 === 0;
     drawTaxi2(player.x, player.y, player.rotorPhase, player.boost, blink, player.tilt);
+    if (state === STATE.PLAY && player.boost) drawSpeedLines();
     drawParticles();
     drawHUD();
     if (flashTimer > 0) {
