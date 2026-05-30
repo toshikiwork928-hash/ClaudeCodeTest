@@ -412,20 +412,51 @@ function sfxBoom()   { noiseBurst(0.22, 0.5, 2200); blip(150, 0.18, "sawtooth", 
 function sfxItem()   { blip(660, 0.08, "square", 0.35); setTimeout(() => blip(990, 0.13, "square", 0.35), 70); }
 function sfxDamage() { noiseBurst(0.18, 0.4, 1200); blip(200, 0.26, "sawtooth", 0.45, 70); }
 function sfxClear()  { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => blip(f, 0.20, "square", 0.38), i * 120)); }
-// BGM(8bit風ループ)。lead=メロディ / bass=ベース。0は休符
-const BGM_LEAD = [523, 0, 659, 784, 0, 659, 523, 0, 587, 0, 698, 880, 0, 784, 659, 0];
-const BGM_BASS = [131, 131, 196, 196, 165, 165, 131, 131, 147, 147, 175, 175, 196, 196, 98, 98];
-function bgmTick() {
-  if (!actx || audioMuted) return;
-  const lead = BGM_LEAD[bgmStep % BGM_LEAD.length];
-  const bass = BGM_BASS[bgmStep % BGM_BASS.length];
-  if (lead) blip(lead, 0.15, "square", 0.18, null, musicGain);
-  if (bass) blip(bass, 0.17, "triangle", 0.30, null, musicGain);
-  // 軽いハイハット
-  if (bgmStep % 2 === 1) noiseBurst(0.03, 0.05, 6000);
+// BGM(8bit風ループ)。テーマごとに曲調を変える。0は休符。
+const TRACKS = {
+  // タイトル: ゆったり爽やか
+  title: {
+    step: 188, leadType: "square", bassType: "triangle", leadGain: 0.18, bassGain: 0.28, hat: false,
+    lead: [523, 0, 659, 0, 784, 0, 659, 0, 698, 0, 587, 0, 523, 0, 0, 0],
+    bass: [131, 131, 165, 165, 175, 175, 131, 131, 147, 147, 131, 131, 98, 98, 98, 98],
+  },
+  // 海: 明るく軽快(メジャー)
+  sea: {
+    step: 166, leadType: "square", bassType: "triangle", leadGain: 0.18, bassGain: 0.30, hat: true,
+    lead: [523, 0, 659, 784, 0, 659, 523, 0, 587, 0, 698, 880, 0, 784, 659, 0],
+    bass: [131, 131, 196, 196, 165, 165, 131, 131, 147, 147, 175, 175, 196, 196, 98, 98],
+  },
+  // 山: ゆったり雄大(マイナーペンタ・柔らかい三角波)
+  mountain: {
+    step: 208, leadType: "triangle", bassType: "triangle", leadGain: 0.24, bassGain: 0.30, hat: false,
+    lead: [440, 0, 0, 523, 0, 659, 0, 587, 523, 0, 0, 440, 0, 392, 0, 0],
+    bass: [110, 0, 165, 0, 131, 0, 196, 0, 98, 0, 147, 0, 110, 0, 165, 0],
+  },
+  // 都会: 速くてノリの良いファンキー
+  city: {
+    step: 138, leadType: "square", bassType: "triangle", leadGain: 0.17, bassGain: 0.32, hat: true,
+    lead: [659, 784, 0, 659, 523, 0, 587, 659, 784, 0, 880, 784, 0, 659, 587, 523],
+    bass: [165, 0, 165, 131, 0, 131, 196, 0, 165, 0, 165, 98, 0, 98, 147, 0],
+  },
+};
+let bgmKey = null;
+function currentBgmKey() { return state === STATE.TITLE ? "title" : stage.theme; }
+function bgmLoop() {
+  if (!actx) { bgmTimer = setTimeout(bgmLoop, 200); return; }
+  const key = currentBgmKey();
+  if (key !== bgmKey) { bgmKey = key; bgmStep = 0; } // 曲が変わったら先頭から
+  const T = TRACKS[key] || TRACKS.title;
+  if (!audioMuted) {
+    const lead = T.lead[bgmStep % T.lead.length];
+    const bass = T.bass[bgmStep % T.bass.length];
+    if (lead) blip(lead, T.step / 1000 * 0.9, T.leadType, T.leadGain, null, musicGain);
+    if (bass) blip(bass, T.step / 1000 * 1.0, T.bassType, T.bassGain, null, musicGain);
+    if (T.hat && bgmStep % 2 === 1) noiseBurst(0.03, 0.05, 6000);
+  }
   bgmStep++;
+  bgmTimer = setTimeout(bgmLoop, T.step);
 }
-function startBgm() { if (!bgmTimer) bgmTimer = setInterval(bgmTick, 168); }
+function startBgm() { if (bgmTimer == null) bgmLoop(); }
 function toggleMute() {
   audioMuted = !audioMuted;
   if (masterGain) masterGain.gain.value = audioMuted ? 0 : 0.85;
