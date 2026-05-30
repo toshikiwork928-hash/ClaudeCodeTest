@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DRONE TAXI - 海上ステージ1</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #000;
+    color: #fff;
+    font-family: "Courier New", monospace;
+    height: 100%;
+    overflow: hidden;
+  }
+  #wrap {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+  /* 整数倍拡大でドット絵をくっきり表示 */
+  canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: #000;
+    border: 4px solid #444;
+    box-shadow: 0 0 0 4px #000, 0 8px 24px rgba(0,0,0,.6);
+    max-width: 95vw;
+    max-height: 80vh;
+  }
+  #hint {
+    font-size: 12px;
+    color: #888;
+    letter-spacing: 1px;
+    text-align: center;
+  }
+  #hint b { color: #fcbc00; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="256" height="240"></canvas>
+  <div id="hint">
+    移動: <b>方向キー / WASD</b> &nbsp;｜&nbsp; ブースト: <b>Shift / Z</b> &nbsp;｜&nbsp; 決定: <b>Enter / Space</b>
+  </div>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+// ============================================================
+// 基本セットアップ
+// ============================================================
+const W = 256, H = 240;            // NES風の内部解像度
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
+
+// 画面を整数倍に拡大して表示
+function fitCanvas() {
+  const maxW = Math.min(window.innerWidth * 0.95, 1024);
+  const maxH = window.innerHeight * 0.80;
+  let scale = Math.max(1, Math.floor(Math.min(maxW / W, maxH / H)));
+  canvas.style.width  = (W * scale) + "px";
+  canvas.style.height = (H * scale) + "px";
+}
+window.addEventListener("resize", fitCanvas);
+fitCanvas();
+
+// ============================================================
+// ファミコン風パレット
+// ============================================================
+const COL = {
+  skyTop:   "#5c94fc",
+  skyMid:   "#3cbcfc",
+  skyLow:   "#bcecfc",
+  cloud:    "#fcfcfc",
+  seaDeep:  "#0000bc",
+  sea:      "#0058f8",
+  seaFoam:  "#3cbcfc",
+  foam:     "#bcecfc",
+  land:     "#00a800",
+  landDark: "#007800",
+  sand:     "#fcbc00",
+  sandDark: "#f87800",
+  taxi:     "#fcd800",
+  taxiDk:   "#f87800",
+  glass:    "#3cbcfc",
+  rotor:    "#bcbcbc",
+  metal:    "#7c7c7c",
+  black:    "#000000",
+  mine:     "#383838",
+  mineSpk:  "#7c7c7c",
+  enemy:    "#b800b8",
+  enemyDk:  "#7800a8",
+  bullet:   "#fc0000",
+  battGood: "#00b800",
+  battWarn: "#fcd800",
+  battBad:  "#f80000",
+  white:    "#fcfcfc",
+  uiBg:     "#000000",
+};
+
+// ============================================================
+// 入力
+// ============================================================
+const keys = {};
+const pressedOnce = {};
+window.addEventListener("keydown", (e) => {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (!keys[k]) pressedOnce[k] = true;
+  keys[k] = true;
+  // ゲーム操作キーのスクロール抑止
+  if ([" ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) e.preventDefault();
+});
+window.addEventListener("keyup", (e) => {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  keys[k] = false;
+});
+function consume(k) { if (pressedOnce[k]) { pressedOnce[k] = false; return true; } return false; }
+function held(...ks) { return ks.some(k => keys[k]); }
+function tapAnyConfirm() {
+  return consume("Enter") || consume(" ") || consume("z");
+}
+
+// ============================================================
+// ゲーム状態
+// ============================================================
+const STATE = { TITLE: 0, PLAY: 1, FALLING: 2, GAMEOVER: 3, CLEAR: 4 };
+let state = STATE.TITLE;
+
+const SEA_Y = 184;                 // 海面のy座標
+const STAGE_LEN = 4200;            // ステージ全長(px)。これ以上スクロールするとゴール
+const GOAL_X = STAGE_LEN;          // ゴール(陸地)のワールドx
+const SCROLL_BASE = 0.95;          // 強制スクロール速度(px/frame)
+
+let cameraX;        // ワールドのスクロール量
+let player;         // 自機
+let obstacles;      // 障害物・敵
+let bullets;        // 敵弾
+let particles;      // 演出用パーティクル
+let clouds;         // 背景の雲
+let waves;          // 波の位相
+let nextSpawnX;     // 次の出現ワールドx
+let frame;          // 経過フレーム
+let shake;          // 画面振動
+let result;         // クリア/ゲームオーバーの理由
+let flashTimer;     // ダメージ時の赤フラッシュ
+
+function resetGame() {
+  cameraX = 0;
+  frame = 0;
+  shake = 0;
+  flashTimer = 0;
+  result = "";
+  player = {
+    x: 60, y: 110,
+    w: 22, h: 14,
+    battery: 100,
+    maxBattery: 100,
+    invuln: 0,      // 無敵フレーム
+    boost: false,
+    rotorPhase: 0,
+    fallVy: 0,      // ゲームオーバー落下用
+  };
+  obstacles = [];
+  bullets = [];
+  particles = [];
+  nextSpawnX = 320;
+  // 背景の雲
+  clouds = [];
+  for (let i = 0; i < 6; i++) {
+    clouds.push({ x: Math.random() * STAGE_LEN, y: 16 + Math.random() * 60, s: 0.3 + Math.random() * 0.4, sz: 8 + Math.random() * 10 });
+  }
+  waves = 0;
+}
+
+// ============================================================
+// 障害物・敵の生成
+// ============================================================
+// type: "mine"(浮遊機雷/上下), "buoy"(海上のブイ/固定), "bird"(敵ドローン/弾を撃つ)
+function spawnEntity(worldX) {
+  const r = Math.random();
+  if (r < 0.38) {
+    // 機雷: 上下に揺れる
+    const baseY = 50 + Math.random() * (SEA_Y - 80);
+    obstacles.push({
+      type: "mine", x: worldX, y: baseY, baseY, w: 16, h: 16,
+      phase: Math.random() * Math.PI * 2, amp: 14 + Math.random() * 18, alive: true,
+    });
+  } else if (r < 0.66) {
+    // ブイ: 海面に浮かぶ固定障害物
+    obstacles.push({
+      type: "buoy", x: worldX, y: SEA_Y - 22, w: 18, h: 26, alive: true,
+      bob: Math.random() * Math.PI * 2,
+    });
+  } else {
+    // 敵ドローン: ゆっくり上下移動しつつ弾を撃つ
+    const baseY = 36 + Math.random() * (SEA_Y - 90);
+    obstacles.push({
+      type: "bird", x: worldX, y: baseY, baseY, w: 18, h: 14, alive: true,
+      phase: Math.random() * Math.PI * 2, amp: 20 + Math.random() * 16,
+      cool: 60 + Math.floor(Math.random() * 60), rotorPhase: 0,
+    });
+  }
+}
+
+// ============================================================
+// 矩形ドット描画ヘルパ
+// ============================================================
+function px(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(x | 0, y | 0, w | 0, h | 0); }
+
+// ============================================================
+// 描画: 背景(空・雲・海・ゴール陸地)
+// ============================================================
+function drawBackground() {
+  // 空グラデーション(帯で表現)
+  px(0, 0, W, 70, COL.skyTop);
+  px(0, 70, W, 50, COL.skyMid);
+  px(0, 120, W, SEA_Y - 120, COL.skyLow);
+
+  // 雲(パララックス。背景を低速スクロールさせ奥行きを表現)
+  for (const c of clouds) {
+    const sx = c.x - cameraX * c.s;
+    drawCloud(((sx % (W + 80)) + (W + 80)) % (W + 80) - 40, c.y, c.sz);
+  }
+
+  // 海
+  px(0, SEA_Y, W, H - SEA_Y, COL.sea);
+  px(0, SEA_Y, W, 4, COL.seaFoam);
+  // 海の縞模様(動く波)
+  for (let y = SEA_Y + 8; y < H; y += 8) {
+    for (let x = 0; x < W; x += 16) {
+      const off = Math.sin((x + cameraX + waves * 6 + y) * 0.05) * 2;
+      px(x + off, y, 8, 2, COL.seaDeep);
+    }
+  }
+  // 海面の白波
+  for (let x = -8; x < W; x += 12) {
+    const wx = x - (cameraX * 0.6 % 12);
+    const wy = SEA_Y + Math.sin((x + waves * 4) * 0.4) * 1.5;
+    px(wx, wy - 1, 6, 2, COL.foam);
+  }
+
+  // ゴールの陸地(右端からせり出す)
+  const landScreenX = GOAL_X - cameraX;
+  if (landScreenX < W + 40) {
+    drawGoalLand(landScreenX);
+  }
+}
+
+function drawCloud(x, y, s) {
+  px(x, y, s * 2, s, COL.cloud);
+  px(x + s * 0.5, y - s * 0.5, s, s * 0.6, COL.cloud);
+  px(x - s * 0.4, y + s * 0.3, s, s * 0.5, COL.cloud);
+}
+
+function drawGoalLand(sx) {
+  // 砂浜と緑の島、灯台、GOAL旗
+  const groundY = SEA_Y - 6;
+  // 砂浜
+  px(sx, groundY, W - sx + 40, H - groundY, COL.sand);
+  px(sx, groundY, W - sx + 40, 4, COL.sandDark);
+  // 草地
+  px(sx + 10, groundY - 18, W - sx + 40, 22, COL.land);
+  px(sx + 10, groundY - 18, W - sx + 40, 4, COL.landDark);
+  // ヤシの木
+  drawPalm(sx + 30, groundY - 18);
+  drawPalm(sx + 70, groundY - 18);
+  // 灯台
+  const lx = sx + 46;
+  px(lx, groundY - 60, 12, 44, COL.white);
+  px(lx, groundY - 60, 12, 6, COL.bullet);
+  px(lx, groundY - 44, 12, 6, COL.bullet);
+  px(lx, groundY - 32, 12, 6, COL.bullet);
+  px(lx - 2, groundY - 66, 16, 6, COL.metal);
+  px(lx + 2, groundY - 72, 8, 6, COL.battWarn); // 灯
+  // GOAL 旗
+  const fx = sx + 18;
+  px(fx, groundY - 90, 2, 50, COL.metal);
+  px(fx + 2, groundY - 90, 22, 14, COL.bullet);
+  ctx.fillStyle = COL.white;
+  ctx.font = "8px monospace";
+  ctx.textBaseline = "top";
+  ctx.fillText("GOAL", fx + 3, groundY - 89);
+}
+
+function drawPalm(x, y) {
+  px(x, y - 24, 4, 24, COL.sandDark);     // 幹
+  px(x - 8, y - 28, 20, 4, COL.land);     // 葉
+  px(x - 6, y - 32, 16, 4, COL.landDark);
+  px(x - 2, y - 26, 8, 4, COL.land);
+}
+
+// ============================================================
+// 描画: 自機(ドローンタクシー)
+// ============================================================
+function drawTaxi(x, y, rotorPhase, boosting, blink) {
+  if (blink) return; // 被弾点滅
+  // 車体(黄色のタクシー)
+  px(x, y, 22, 14, COL.taxi);
+  px(x, y + 10, 22, 4, COL.taxiDk);        // 下部影
+  // チェッカー帯(タクシーの象徴)
+  for (let i = 0; i < 5; i++) {
+    px(x + 1 + i * 4, y + 6, 2, 2, i % 2 ? COL.black : COL.white);
+    px(x + 3 + i * 4, y + 6, 2, 2, i % 2 ? COL.white : COL.black);
+  }
+  // コックピット窓
+  px(x + 13, y + 2, 7, 5, COL.glass);
+  px(x + 13, y + 2, 2, 5, COL.white);
+  // 前照灯
+  px(x + 21, y + 3, 2, 3, COL.battWarn);
+  // 着陸脚
+  px(x + 3, y + 14, 2, 3, COL.metal);
+  px(x + 17, y + 14, 2, 3, COL.metal);
+  // ローター支柱
+  px(x + 4, y - 3, 2, 3, COL.metal);
+  px(x + 16, y - 3, 2, 3, COL.metal);
+  // ローター(回転をプロペラ風に)
+  const spin = Math.floor(rotorPhase) % 2 === 0;
+  if (spin) {
+    px(x - 2, y - 4, 14, 2, COL.rotor);
+    px(x + 10, y - 4, 14, 2, COL.rotor);
+  } else {
+    px(x + 2, y - 5, 6, 2, COL.rotor);
+    px(x + 14, y - 5, 6, 2, COL.rotor);
+  }
+  // ブースト炎
+  if (boosting) {
+    const f = Math.random();
+    px(x - 6, y + 4, 6, 5, COL.battBad);
+    px(x - 9 - f * 4, y + 5, 4, 3, COL.battWarn);
+  }
+}
+
+// ============================================================
+// 描画: 敵・障害物
+// ============================================================
+function drawEntity(o) {
+  const x = o.x - cameraX;
+  if (x < -40 || x > W + 40) return;
+  if (o.type === "mine") {
+    // 機雷: 黒い球+スパイク
+    px(x + 2, o.y + 2, 12, 12, COL.mine);
+    px(x + 4, o.y + 4, 5, 4, COL.mineSpk); // ハイライト
+    // スパイク
+    px(x + 6, o.y - 2, 4, 4, COL.mineSpk);
+    px(x + 6, o.y + 14, 4, 4, COL.mineSpk);
+    px(x - 2, o.y + 6, 4, 4, COL.mineSpk);
+    px(x + 14, o.y + 6, 4, 4, COL.mineSpk);
+    // 点滅ランプ
+    if (Math.floor(frame / 10) % 2 === 0) px(x + 7, o.y + 6, 2, 2, COL.battBad);
+  } else if (o.type === "buoy") {
+    const bob = Math.sin(o.bob + frame * 0.08) * 2;
+    const by = o.y + bob;
+    // ブイ本体(赤白)
+    px(x + 3, by, 12, 18, COL.bullet);
+    px(x + 3, by + 6, 12, 4, COL.white);
+    px(x + 3, by + 12, 12, 4, COL.white);
+    px(x + 6, by - 5, 6, 6, COL.metal); // 上部
+    px(x + 8, by - 9, 2, 4, COL.black); // ポール
+    // 水しぶき
+    px(x + 1, by + 18, 16, 2, COL.foam);
+  } else if (o.type === "bird") {
+    // 敵ドローン(紫)
+    px(x, o.y, 18, 12, COL.enemy);
+    px(x, o.y + 8, 18, 4, COL.enemyDk);
+    px(x + 3, o.y + 3, 5, 4, COL.bullet); // 目(砲)
+    px(x + 12, o.y + 3, 4, 4, COL.black);
+    // ローター
+    const spin = Math.floor(o.rotorPhase) % 2 === 0;
+    if (spin) { px(x - 2, o.y - 3, 10, 2, COL.metal); px(x + 10, o.y - 3, 10, 2, COL.metal); }
+    else { px(x + 1, o.y - 4, 4, 2, COL.metal); px(x + 13, o.y - 4, 4, 2, COL.metal); }
+  }
+}
+
+function drawBullet(b) {
+  const x = b.x - cameraX;
+  px(x, b.y, 5, 3, COL.bullet);
+  px(x + 4, b.y, 3, 3, COL.battWarn);
+}
+
+// ============================================================
+// パーティクル
+// ============================================================
+function addExplosion(wx, y, color, n = 12) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 0.5 + Math.random() * 2.2;
+    particles.push({
+      x: wx, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      life: 18 + Math.random() * 14, color, g: 0.04,
+    });
+  }
+}
+function addSplash(wx, y) {
+  for (let i = 0; i < 20; i++) {
+    particles.push({
+      x: wx + (Math.random() - 0.5) * 18, y,
+      vx: (Math.random() - 0.5) * 2.5, vy: -1 - Math.random() * 3,
+      life: 24 + Math.random() * 16, color: i % 2 ? COL.foam : COL.seaFoam, g: 0.14,
+    });
+  }
+}
+function updateParticles() {
+  for (const p of particles) {
+    p.x += p.vx; p.y += p.vy; p.vy += p.g; p.life--;
+  }
+  particles = particles.filter(p => p.life > 0);
+}
+function drawParticles() {
+  for (const p of particles) {
+    px(p.x - cameraX, p.y, 2, 2, p.color);
+  }
+}
+
+// ============================================================
+// HUD (バッテリー・距離)
+// ============================================================
+function drawHUD() {
+  // 上部バー
+  px(0, 0, W, 18, COL.uiBg);
+  px(0, 18, W, 1, COL.metal);
+
+  // バッテリーアイコン枠
+  ctx.fillStyle = COL.white;
+  ctx.font = "8px monospace";
+  ctx.textBaseline = "top";
+  ctx.fillText("BATTERY", 4, 6);
+
+  const bx = 58, by = 5, bw = 80, bh = 9;
+  px(bx, by, bw, bh, COL.metal);
+  px(bx + 1, by + 1, bw - 2, bh - 2, COL.black);
+  px(bx + bw, by + 2, 2, bh - 4, COL.metal); // 端子
+  const ratio = Math.max(0, player.battery / player.maxBattery);
+  const col = ratio > 0.5 ? COL.battGood : ratio > 0.22 ? COL.battWarn : COL.battBad;
+  // 残量が少ないと点滅
+  const lowBlink = ratio <= 0.22 && Math.floor(frame / 6) % 2 === 0;
+  if (!lowBlink) px(bx + 2, by + 2, (bw - 4) * ratio, bh - 4, col);
+  ctx.fillStyle = COL.white;
+  ctx.fillText(Math.ceil(ratio * 100) + "%", bx + bw + 8, 6);
+
+  // 進捗(距離)バー
+  const prog = Math.min(1, cameraX / GOAL_X);
+  const px0 = 176, pw = 70;
+  px(px0, 6, pw, 7, COL.metal);
+  px(px0 + 1, 7, pw - 2, 5, COL.black);
+  px(px0 + 1, 7, (pw - 2) * prog, 5, COL.seaFoam);
+  // ゴール旗マーカー
+  px(px0 + pw - 2, 4, 2, 9, COL.bullet);
+  // 自機マーカー
+  px(px0 + 1 + (pw - 4) * prog, 5, 2, 9, COL.taxi);
+}
+
+// ============================================================
+// 更新: プレイ中
+// ============================================================
+function updatePlay() {
+  frame++;
+  waves += 1;
+  if (shake > 0) shake--;
+  if (flashTimer > 0) flashTimer--;
+  if (player.invuln > 0) player.invuln--;
+
+  // --- 強制スクロール(ゴールまで) ---
+  if (cameraX < GOAL_X) {
+    cameraX += SCROLL_BASE;
+    if (cameraX > GOAL_X) cameraX = GOAL_X;
+  }
+
+  // --- 入力による移動 ---
+  const boosting = held("Shift", "z") && player.battery > 0;
+  player.boost = boosting;
+  const speed = boosting ? 2.7 : 1.7;
+  let mx = 0, my = 0;
+  if (held("ArrowLeft", "a"))  mx -= 1;
+  if (held("ArrowRight", "d")) mx += 1;
+  if (held("ArrowUp", "w"))    my -= 1;
+  if (held("ArrowDown", "s"))  my += 1;
+  // 斜め正規化
+  if (mx && my) { mx *= 0.71; my *= 0.71; }
+  player.x += mx * speed;
+  player.y += my * speed;
+
+  // 自機は画面座標で管理。強制スクロールに流されず操作だけで動く設計。
+  // 画面内に拘束
+  player.x = Math.max(2, Math.min(W - player.w - 2, player.x));
+  player.y = Math.max(20, Math.min(SEA_Y - player.h - 1, player.y));
+
+  // ローター回転
+  player.rotorPhase += boosting ? 0.9 : 0.6;
+
+  // --- バッテリー消費(常時消費 + ブースト時は増大) ---
+  player.battery -= boosting ? 0.10 : 0.045;
+  if (player.battery <= 0) {
+    player.battery = 0;
+    result = "BATTERY EMPTY";
+    startFalling();
+    return;
+  }
+
+  // --- 雲の流れ ---
+  for (const c of clouds) {
+    c.x -= c.s * 0.6;
+    if (c.x < cameraX - 60) c.x = cameraX + W + Math.random() * 200;
+  }
+
+  // --- 敵・障害物の出現(進むほど密度上昇) ---
+  while (nextSpawnX < cameraX + W + 40 && nextSpawnX < GOAL_X - 120) {
+    spawnEntity(nextSpawnX);
+    const progress = nextSpawnX / GOAL_X;
+    const gap = 150 - progress * 60 + Math.random() * 90;
+    nextSpawnX += gap;
+  }
+
+  // --- 障害物・敵の更新 ---
+  const playerWorld = cameraX + player.x; // 自機のワールドx
+  for (const o of obstacles) {
+    if (!o.alive) continue;
+    if (o.type === "mine") {
+      o.y = o.baseY + Math.sin(frame * 0.04 + o.phase) * o.amp;
+    } else if (o.type === "bird") {
+      o.rotorPhase += 0.7;
+      o.y = o.baseY + Math.sin(frame * 0.03 + o.phase) * o.amp;
+      // 自機の方へ少しずつ寄る
+      o.baseY += Math.sign(player.y - o.baseY) * 0.15;
+      o.baseY = Math.max(28, Math.min(SEA_Y - 50, o.baseY));
+      // 弾発射(画面内のときだけ)
+      const sx = o.x - cameraX;
+      if (sx > 0 && sx < W) {
+        o.cool--;
+        if (o.cool <= 0) {
+          o.cool = 90 + Math.floor(Math.random() * 50);
+          const px0 = o.x, py0 = o.y + 6;
+          const tx = playerWorld + player.w / 2, ty = player.y + player.h / 2;
+          const dx = tx - px0, dy = ty - py0;
+          const d = Math.hypot(dx, dy) || 1;
+          const bs = 2.3;
+          bullets.push({ x: px0, y: py0, vx: dx / d * bs - SCROLL_BASE, vy: dy / d * bs });
+        }
+      }
+    }
+  }
+
+  // 画面外(左)に去った敵を除去
+  obstacles = obstacles.filter(o => o.alive && (o.x - cameraX) > -60);
+
+  // --- 弾の更新 ---
+  for (const b of bullets) { b.x += b.vx; b.y += b.vy; }
+  bullets = bullets.filter(b => {
+    const sx = b.x - cameraX;
+    return sx > -20 && sx < W + 20 && b.y > 12 && b.y < SEA_Y;
+  });
+
+  // --- 衝突判定 ---
+  const pwx = cameraX + player.x; // 自機ワールド矩形
+  const pr = { x: pwx, y: player.y, w: player.w, h: player.h };
+
+  if (player.invuln <= 0) {
+    for (const o of obstacles) {
+      if (!o.alive) continue;
+      if (aabb(pr, o)) {
+        damage(o.type === "buoy" ? 8 : 12, o);
+        break;
+      }
+    }
+  }
+  // 敵弾(無敵中でもすり抜けるが弾は消す)
+  for (const b of bullets) {
+    const br = { x: b.x, y: b.y, w: 6, h: 3 };
+    if (aabb(pr, br)) {
+      b.dead = true;
+      if (player.invuln <= 0) damage(9, null, b);
+    }
+  }
+  bullets = bullets.filter(b => !b.dead);
+
+  updateParticles();
+
+  // --- クリア判定: ゴール陸地に到達 ---
+  if (cameraX >= GOAL_X) {
+    if (player.x + player.w >= W - 80) {
+      startClear();
+    }
+  }
+}
+
+function aabb(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+// ダメージ処理: バッテリー減少 + ノックバック + 無敵 + 演出
+function damage(amount, obstacle, bullet) {
+  player.battery -= amount;
+  player.invuln = 60;
+  flashTimer = 8;
+  shake = 8;
+  // ノックバック(左下方向)
+  player.x -= 14;
+  player.y += 6;
+  player.x = Math.max(2, player.x);
+  player.y = Math.min(SEA_Y - player.h - 1, player.y);
+  // 接触した機雷/敵は破壊して爆発
+  if (obstacle && obstacle.type !== "buoy") {
+    obstacle.alive = false;
+    addExplosion(obstacle.x + obstacle.w / 2, obstacle.y + obstacle.h / 2, COL.battWarn, 14);
+  } else if (obstacle && obstacle.type === "buoy") {
+    addExplosion(cameraX + player.x + 4, player.y + 8, COL.foam, 8);
+  }
+  if (bullet) addExplosion(bullet.x, bullet.y, COL.battWarn, 8);
+  // 自機ダメージ火花
+  addExplosion(cameraX + player.x + player.w / 2, player.y + player.h / 2, COL.battBad, 6);
+
+  if (player.battery <= 0) {
+    player.battery = 0;
+    result = "BATTERY EMPTY";
+    startFalling();
+  }
+}
+
+// ============================================================
+// ゲームオーバー演出: 海へ落下
+// ============================================================
+let splashed = false;
+function startFalling() {
+  state = STATE.FALLING;
+  player.fallVy = -1.5;        // 一瞬浮いてから落ちる
+  player.boost = false;
+  shake = 10;
+  splashed = false;
+}
+
+function updateFalling() {
+  frame++;
+  waves += 1;
+  if (shake > 0) shake--;
+  // 自機落下(ローター停止 → 重力)
+  player.fallVy += 0.22;
+  player.y += player.fallVy;
+  player.x -= 0.6;             // 少し後ろへ流れる
+  player.rotorPhase += 0.1;    // ほぼ停止
+  player.x += Math.sin(frame * 0.3) * 0.6; // 揺れながら落ちる
+
+  updateParticles();
+
+  // 海面着水
+  if (!splashed && player.y + player.h >= SEA_Y) {
+    splashed = true;
+    addSplash(cameraX + player.x + player.w / 2, SEA_Y);
+    shake = 12;
+  }
+  // 沈んだらゲームオーバー画面へ
+  if (player.y > H + 10) {
+    state = STATE.GAMEOVER;
+  }
+}
+
+// ============================================================
+// クリア演出
+// ============================================================
+let clearTimer = 0;
+function startClear() {
+  state = STATE.CLEAR;
+  clearTimer = 0;
+  result = "STAGE CLEAR";
+  for (let i = 0; i < 30; i++) {
+    addExplosion(cameraX + W - 40 + Math.random() * 30, 40 + Math.random() * 80,
+      [COL.taxi, COL.seaFoam, COL.bullet, COL.white][i % 4], 1);
+  }
+}
+function updateClear() {
+  frame++; waves++; clearTimer++;
+  player.rotorPhase += 0.6;
+  // ゆっくり陸地へ着陸
+  if (player.y < SEA_Y - 30) player.y += 0.4;
+  player.x += 0.3;
+  player.x = Math.min(W - player.w - 30, player.x);
+  if (clearTimer % 18 === 0) {
+    addExplosion(20 + Math.random() * (W - 40), 30 + Math.random() * 60,
+      [COL.taxi, COL.seaFoam, COL.bullet, COL.white][clearTimer % 4], 6);
+  }
+  updateParticles();
+}
+
+// ============================================================
+// 画面: タイトル
+// ============================================================
+function drawTitle() {
+  // 背景(海)
+  px(0, 0, W, 70, COL.skyTop);
+  px(0, 70, W, 50, COL.skyMid);
+  px(0, 120, W, SEA_Y - 120, COL.skyLow);
+  px(0, SEA_Y, W, H - SEA_Y, COL.sea);
+  px(0, SEA_Y, W, 4, COL.seaFoam);
+  for (let y = SEA_Y + 8; y < H; y += 8)
+    for (let x = 0; x < W; x += 16)
+      px(x + Math.sin((x + frame * 4 + y) * 0.05) * 2, y, 8, 2, COL.seaDeep);
+  drawCloud(40, 40, 12);
+  drawCloud(180, 30, 10);
+  drawCloud(120, 64, 8);
+
+  // デモ用に漂うタクシー
+  const ty = 120 + Math.sin(frame * 0.05) * 8;
+  drawTaxi(W / 2 - 11, ty, frame * 0.6, false, false);
+
+  // タイトルロゴ
+  drawBigText("DRONE TAXI", W / 2, 56, COL.taxi, COL.taxiDk);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "8px monospace";
+  ctx.fillStyle = COL.white;
+  ctx.fillText("- 海上ステージ 1 -", W / 2, 78);
+
+  // 点滅 PRESS START
+  if (Math.floor(frame / 24) % 2 === 0) {
+    ctx.fillStyle = COL.white;
+    ctx.font = "10px monospace";
+    ctx.fillText("PRESS  ENTER  /  SPACE", W / 2, 168);
+  }
+
+  // 操作説明
+  ctx.font = "7px monospace";
+  ctx.fillStyle = COL.foam;
+  ctx.fillText("MOVE: ARROWS / WASD    BOOST: SHIFT / Z", W / 2, 206);
+  ctx.fillStyle = "#9bd";
+  ctx.fillText("ゴールの陸地を目指せ! バッテリーに注意!", W / 2, 220);
+  ctx.textAlign = "left";
+}
+
+// 簡易ビットマップ風大文字(影付き)
+function drawBigText(text, cx, cy, color, shadow) {
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold 20px monospace";
+  ctx.fillStyle = shadow;
+  ctx.fillText(text, cx + 2, cy + 2);
+  ctx.fillStyle = color;
+  ctx.fillText(text, cx, cy);
+}
+
+// ============================================================
+// 画面: ゲームオーバー
+// ============================================================
+function drawGameOver() {
+  // 暗い海
+  px(0, 0, W, SEA_Y, "#101840");
+  px(0, SEA_Y, W, H - SEA_Y, COL.seaDeep);
+  for (let y = SEA_Y + 8; y < H; y += 8)
+    for (let x = 0; x < W; x += 16)
+      px(x + Math.sin((x + frame * 3 + y) * 0.05) * 2, y, 8, 2, "#000080");
+
+  drawBigText("GAME OVER", W / 2, 90, COL.battBad, "#600");
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "8px monospace";
+  ctx.fillStyle = COL.battWarn;
+  ctx.fillText(result || "BATTERY EMPTY", W / 2, 116);
+  ctx.fillStyle = COL.white;
+  const reached = Math.floor((cameraX / GOAL_X) * 100);
+  ctx.fillText("到達度: " + reached + "%", W / 2, 134);
+  if (Math.floor(frame / 24) % 2 === 0) {
+    ctx.font = "9px monospace";
+    ctx.fillStyle = COL.white;
+    ctx.fillText("PRESS ENTER TO RETRY", W / 2, 170);
+  }
+  ctx.textAlign = "left";
+}
+
+// ============================================================
+// 画面: クリア
+// ============================================================
+function drawClear() {
+  drawBackground();
+  drawTaxi(player.x, player.y, player.rotorPhase, false, false);
+  drawParticles();
+
+  // 半透明オーバーレイ
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.fillRect(0, 60, W, 90);
+
+  drawBigText("STAGE CLEAR!", W / 2, 92, COL.taxi, COL.taxiDk);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "8px monospace";
+  ctx.fillStyle = COL.white;
+  ctx.fillText("陸地に到着しました!", W / 2, 116);
+  ctx.fillStyle = COL.battGood;
+  ctx.fillText("残バッテリー: " + Math.ceil(player.battery) + "%", W / 2, 130);
+  if (clearTimer > 60 && Math.floor(frame / 24) % 2 === 0) {
+    ctx.font = "9px monospace";
+    ctx.fillStyle = COL.white;
+    ctx.fillText("PRESS ENTER", W / 2, 168);
+  }
+  ctx.textAlign = "left";
+}
+
+// ============================================================
+// メインループ
+// ============================================================
+function render() {
+  ctx.save();
+  // 画面振動
+  if (shake > 0) {
+    ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+  }
+
+  if (state === STATE.TITLE) {
+    drawTitle();
+  } else if (state === STATE.PLAY || state === STATE.FALLING) {
+    drawBackground();
+    for (const o of obstacles) drawEntity(o);
+    for (const b of bullets) drawBullet(b);
+    // 自機(被弾点滅)
+    const blink = state === STATE.PLAY && player.invuln > 0 && Math.floor(frame / 4) % 2 === 0;
+    drawTaxi(player.x, player.y, player.rotorPhase, player.boost, blink);
+    drawParticles();
+    drawHUD();
+    // ダメージ赤フラッシュ
+    if (flashTimer > 0) {
+      ctx.fillStyle = "rgba(248,0,0," + (flashTimer / 8 * 0.35) + ")";
+      ctx.fillRect(0, 0, W, H);
+    }
+    // 低バッテリー警告
+    if (state === STATE.PLAY && player.battery <= player.maxBattery * 0.22) {
+      if (Math.floor(frame / 18) % 2 === 0) {
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        ctx.fillStyle = COL.battBad;
+        ctx.font = "9px monospace";
+        ctx.fillText("!! LOW BATTERY !!", W / 2, 26);
+        ctx.textAlign = "left";
+      }
+    }
+  } else if (state === STATE.GAMEOVER) {
+    drawGameOver();
+  } else if (state === STATE.CLEAR) {
+    drawClear();
+  }
+
+  ctx.restore();
+}
+
+function update() {
+  switch (state) {
+    case STATE.TITLE:
+      frame++;
+      if (tapAnyConfirm()) { resetGame(); state = STATE.PLAY; }
+      break;
+    case STATE.PLAY:
+      updatePlay();
+      break;
+    case STATE.FALLING:
+      updateFalling();
+      break;
+    case STATE.GAMEOVER:
+      frame++;
+      if (tapAnyConfirm()) { state = STATE.TITLE; frame = 0; }
+      break;
+    case STATE.CLEAR:
+      updateClear();
+      if (clearTimer > 60 && tapAnyConfirm()) { state = STATE.TITLE; frame = 0; }
+      break;
+  }
+}
+
+function loop() {
+  update();
+  render();
+  requestAnimationFrame(loop);
+}
+
+// 初期化して開始
+resetGame();
+state = STATE.TITLE;
+frame = 0;
+loop();
+
+})();
+</script>
+</body>
+</html>
