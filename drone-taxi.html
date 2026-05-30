@@ -1354,11 +1354,13 @@ function update() {
     case STATE.GAMEOVER: frame++; if (tapAnyConfirm()) { stageIndex = 0; stage = STAGES[0]; STAGE_LEN = stage.len; GOAL_X = STAGE_LEN; SCROLL_BASE = stage.scroll; state = STATE.TITLE; frame = 0; } break;
     case STATE.CLEAR:
       updateClear();
-      // 着陸＆降車が一段落したら次へ
-      if (player.landed && player.pilotPhase > 30 && tapAnyConfirm()) {
+      // 着陸＆降車が一段落するまでは、プレイ中に押した決定入力を捨てる(誤発進防止)
+      const clearReady = player.landed && player.pilotPhase > 30;
+      if (!clearReady) {
+        consume("Enter"); consume(" "); consume("z");
+      } else if (tapAnyConfirm()) {
         if (stageIndex < STAGES.length - 1) {
-          // 次ステージへ(バッテリーを少し回復して引き継ぎ)
-          startStage(stageIndex + 1, Math.min(100, player.battery + 30));
+          startStage(stageIndex + 1, 100); // 次ステージは満タンから
         } else {
           // 全ステージクリア → タイトルへ
           stageIndex = 0; stage = STAGES[0]; STAGE_LEN = stage.len; GOAL_X = STAGE_LEN; SCROLL_BASE = stage.scroll;
