@@ -255,6 +255,8 @@ window.addEventListener("keydown", (e) => {
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (!keys[k]) pressedOnce[k] = true;
   keys[k] = true;
+  kickAudio();
+  if (k === "m") toggleMute();
   if ([" ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) e.preventDefault();
 });
 window.addEventListener("keyup", (e) => {
@@ -288,7 +290,10 @@ function setStick(gx, gy) {
 }
 function onDown(e) {
   e.preventDefault();
+  kickAudio();
   const { gx, gy } = clientToGame(e.clientX, e.clientY);
+  // ミュートボタン(全画面共通・最優先)
+  if (inBtn(MUTE, gx, gy, 8)) { toggleMute(); return; }
   // タイトル: ステージ選択メニューのタップ
   if (state === STATE.TITLE) {
     for (let i = 0; i < WORLDS.length; i++) {
@@ -353,6 +358,97 @@ function glow(x, y, r, c, a) {
   ctx.fillStyle = g;
   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
   ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// サウンド(Web Audio APIで合成。外部ファイル不要・オフライン動作)
+// ============================================================
+let actx = null, masterGain = null, musicGain = null, sfxGain = null;
+let audioMuted = false, bgmTimer = null, bgmStep = 0;
+function initAudio() {
+  if (actx) return;
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = actx.createGain(); masterGain.gain.value = audioMuted ? 0 : 0.85; masterGain.connect(actx.destination);
+    musicGain  = actx.createGain(); musicGain.gain.value = 0.30; musicGain.connect(masterGain);
+    sfxGain    = actx.createGain(); sfxGain.gain.value = 0.55; sfxGain.connect(masterGain);
+  } catch (e) { actx = null; }
+}
+// 入力時に呼ぶ: コンテキスト再開 + BGM開始
+function kickAudio() {
+  initAudio();
+  if (!actx) return;
+  if (actx.state === "suspended") actx.resume();
+  startBgm();
+}
+function blip(freq, dur, type, gain, slideTo, dest) {
+  if (!actx) return;
+  const t = actx.currentTime;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type || "square";
+  o.frequency.setValueAtTime(freq, t);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(gain || 0.4, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(dest || sfxGain);
+  o.start(t); o.stop(t + dur + 0.03);
+}
+function noiseBurst(dur, gain, filt) {
+  if (!actx) return;
+  const t = actx.currentTime, n = Math.floor(actx.sampleRate * dur);
+  const buf = actx.createBuffer(1, n, actx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const src = actx.createBufferSource(); src.buffer = buf;
+  const g = actx.createGain(); g.gain.value = gain || 0.4;
+  const f = actx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = filt || 1800;
+  src.connect(f); f.connect(g); g.connect(sfxGain);
+  src.start(t);
+}
+// 効果音
+function sfxShoot()  { blip(900, 0.11, "square", 0.30, 240); }
+function sfxHit()    { blip(170, 0.10, "sawtooth", 0.25, 60); }                 // 命中
+function sfxBoom()   { noiseBurst(0.22, 0.5, 2200); blip(150, 0.18, "sawtooth", 0.3, 50); } // 撃墜
+function sfxItem()   { blip(660, 0.08, "square", 0.35); setTimeout(() => blip(990, 0.13, "square", 0.35), 70); }
+function sfxDamage() { noiseBurst(0.18, 0.4, 1200); blip(200, 0.26, "sawtooth", 0.45, 70); }
+function sfxClear()  { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => blip(f, 0.20, "square", 0.38), i * 120)); }
+// BGM(8bit風ループ)。lead=メロディ / bass=ベース。0は休符
+const BGM_LEAD = [523, 0, 659, 784, 0, 659, 523, 0, 587, 0, 698, 880, 0, 784, 659, 0];
+const BGM_BASS = [131, 131, 196, 196, 165, 165, 131, 131, 147, 147, 175, 175, 196, 196, 98, 98];
+function bgmTick() {
+  if (!actx || audioMuted) return;
+  const lead = BGM_LEAD[bgmStep % BGM_LEAD.length];
+  const bass = BGM_BASS[bgmStep % BGM_BASS.length];
+  if (lead) blip(lead, 0.15, "square", 0.18, null, musicGain);
+  if (bass) blip(bass, 0.17, "triangle", 0.30, null, musicGain);
+  // 軽いハイハット
+  if (bgmStep % 2 === 1) noiseBurst(0.03, 0.05, 6000);
+  bgmStep++;
+}
+function startBgm() { if (!bgmTimer) bgmTimer = setInterval(bgmTick, 168); }
+function toggleMute() {
+  audioMuted = !audioMuted;
+  if (masterGain) masterGain.gain.value = audioMuted ? 0 : 0.85;
+}
+const MUTE = { x: W - 13, y: 32, r: 9 }; // ミュートボタン(右上)
+function drawMute() {
+  const b = MUTE;
+  ctx.globalAlpha = 0.55; ctx.fillStyle = "#0a1428";
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(255,255,255,0.5)";
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
+  // スピーカー
+  ctx.fillStyle = COL.white;
+  px(b.x - 5, b.y - 2, 2, 4, COL.white);
+  ctx.beginPath(); ctx.moveTo(b.x - 3, b.y - 3); ctx.lineTo(b.x, b.y - 5); ctx.lineTo(b.x, b.y + 5); ctx.lineTo(b.x - 3, b.y + 3); ctx.closePath(); ctx.fill();
+  if (audioMuted) {
+    ctx.strokeStyle = COL.battBad; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(b.x + 2, b.y - 5); ctx.lineTo(b.x + 6, b.y + 5); ctx.stroke();
+  } else {
+    ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(b.x + 2, b.y, 4, -0.7, 0.7); ctx.stroke();
+  }
 }
 
 // ============================================================
@@ -1459,6 +1555,7 @@ function updatePlay() {
     const mx2 = cameraX + player.x + player.w, my2 = player.y + player.h / 2;
     pShots.push({ x: mx2, y: my2, vx: 6.4, vy: 0 });
     addExplosion(mx2, my2, COL.pShotC, 3);
+    sfxShoot();
   }
 
   for (const c of cloudsFar)  { c.x -= c.s * 0.5; if (c.x < cameraX - 80) c.x = cameraX + W + Math.random() * 200; }
@@ -1524,7 +1621,8 @@ function updatePlay() {
           addExplosion(o.x + o.w / 2, o.y + o.h / 2, COL.battWarn, 18);
           addExplosion(o.x + o.w / 2, o.y + o.h / 2, COL.bulletC, 10);
           shake = Math.max(shake, 5);
-        }
+          sfxBoom();
+        } else { sfxHit(); }
         break;
       }
     }
@@ -1543,6 +1641,7 @@ function updatePlay() {
       flashTimer = 4;
       addExplosion(it.x + it.w / 2, it.y + it.h / 2, COL.itemStar, 16);
       addExplosion(it.x + it.w / 2, it.y + it.h / 2, COL.pShot, 8);
+      sfxItem();
     }
   }
   items = items.filter(it => !it.taken && (it.x - cameraX) > -40);
@@ -1570,6 +1669,7 @@ function aabb(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b
 function damage(amount, obstacle, bullet) {
   player.battery -= amount;
   player.invuln = 60; flashTimer = 8; shake = 9;
+  sfxDamage();
   player.x -= 16; player.y += 6;
   player.x = Math.max(2, player.x);
   player.y = Math.min(SEA_Y - player.h - 1, player.y);
@@ -1591,6 +1691,7 @@ function damage(amount, obstacle, bullet) {
 let splashed = false;
 function startFalling() {
   state = STATE.FALLING; player.fallVy = -1.6; player.boost = false; shake = 11; splashed = false;
+  blip(440, 0.7, "sawtooth", 0.4, 70); // 墜落(下降音)
 }
 function updateFalling() {
   frame++; waves++;
@@ -1620,6 +1721,7 @@ function startClear() {
   state = STATE.CLEAR; clearTimer = 0; result = "STAGE CLEAR";
   player.landed = false; player.boost = false;
   player.pilotPhase = 0;
+  sfxClear();
   for (let i = 0; i < 30; i++)
     addExplosion(cameraX + W - 50 + Math.random() * 36, 46 + Math.random() * 90,
       [COL.taxi, COL.foam2, COL.bulletC, COL.battGood][i % 4], 1);
@@ -1755,11 +1857,7 @@ function drawMenuOption(i) {
   ctx.textAlign = "left"; ctx.textBaseline = "middle";
   ctx.font = "bold 12px 'Trebuchet MS', sans-serif";
   ctx.fillStyle = sel ? COL.white : "#b8c6e0";
-  ctx.fillText("ステージ" + (i + 1) + "  " + wn.name, r.x + 28, r.y + r.h / 2 - 1);
-  ctx.font = "8px 'Trebuchet MS', sans-serif"; ctx.fillStyle = "#8aa0c8";
-  ctx.textAlign = "right";
-  ctx.fillText(STAGES[wn.start].name + "〜" + STAGES[wn.start + 2].name, r.x + r.w - 8, r.y + r.h / 2);
-  ctx.textAlign = "left";
+  ctx.fillText("ステージ" + (i + 1) + "  " + wn.name, r.x + 28, r.y + r.h / 2);
   if (sel && Math.floor(frame / 20) % 2 === 0) { ctx.fillStyle = COL.battWarn; ctx.font = "bold 11px 'Trebuchet MS', sans-serif"; ctx.fillText("▶", r.x - 13, r.y + r.h / 2); }
 }
 
@@ -1960,6 +2058,7 @@ function render() {
   } else if (state === STATE.CLEAR) {
     drawClear();
   }
+  drawMute(); // ミュートボタン(全画面共通)
   ctx.restore();
 }
 
