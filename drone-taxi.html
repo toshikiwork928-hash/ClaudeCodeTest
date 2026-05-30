@@ -787,7 +787,7 @@ function updatePlay() {
   player.y = Math.max(26, Math.min(SEA_Y - player.h - 1, player.y));
   player.rotorPhase += boosting ? 0.9 : 0.6;
 
-  player.battery -= boosting ? 0.10 : 0.045;
+  player.battery -= boosting ? 0.030 : 0.013;
   if (player.battery <= 0) { player.battery = 0; result = "BATTERY EMPTY"; startFalling(); return; }
 
   for (const c of cloudsFar)  { c.x -= c.s * 0.5; if (c.x < cameraX - 80) c.x = cameraX + W + Math.random() * 200; }
