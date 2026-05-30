@@ -216,9 +216,63 @@ window.addEventListener("keyup", (e) => {
 });
 function consume(k) { if (pressedOnce[k]) { pressedOnce[k] = false; return true; } return false; }
 function held(...ks) { return ks.some(k => keys[k]); }
-function tapAnyConfirm() { return consume("Enter") || consume(" ") || consume("z"); }
-// 発射: K / X / J を押しっぱなしで連射(クールダウンは更新側で管理)
-function shootHeld() { return held("k", "x", "j"); }
+
+// ------------------------------------------------------------
+// オンスクリーン操作(マウス/タッチ共通・Pointer Events)
+//   左下: 移動ジョイスティック / 右下: FIRE(★) / その上: BOOST(小)
+// ------------------------------------------------------------
+const STICK = { cx: 46, cy: H - 42, base: 28, knob: 13 };
+const BTN_FIRE  = { x: W - 34, y: H - 34, r: 21 };
+const BTN_BOOST = { x: W - 34, y: H - 86, r: 15 };
+
+const stick = { active: false, id: null, dx: 0, dy: 0 };
+let boostId = null, fireId = null, uiBoost = false, uiFire = false, uiConfirm = false;
+
+function clientToGame(clientX, clientY) {
+  const r = canvas.getBoundingClientRect();
+  return { gx: (clientX - r.left) / r.width * W, gy: (clientY - r.top) / r.height * H };
+}
+function inBtn(b, gx, gy, pad) { const dx = gx - b.x, dy = gy - b.y, rr = b.r + (pad || 0); return dx*dx + dy*dy <= rr*rr; }
+function setStick(gx, gy) {
+  let dx = gx - STICK.cx, dy = gy - STICK.cy;
+  const d = Math.hypot(dx, dy), max = STICK.base;
+  if (d > max) { dx = dx / d * max; dy = dy / d * max; }
+  stick.dx = dx / max; stick.dy = dy / max; // [-1,1]
+}
+function onDown(e) {
+  e.preventDefault();
+  const { gx, gy } = clientToGame(e.clientX, e.clientY);
+  uiConfirm = true;
+  if (state !== STATE.PLAY) return;
+  if (inBtn(BTN_BOOST, gx, gy, 8)) { boostId = e.pointerId; uiBoost = true; return; }
+  if (stage.items && inBtn(BTN_FIRE, gx, gy, 8)) { fireId = e.pointerId; uiFire = true; return; }
+  // それ以外(主に画面左側)はジョイスティック
+  if (!stick.active) { stick.active = true; stick.id = e.pointerId; setStick(gx, gy); }
+}
+function onMove(e) {
+  if (e.pointerId !== stick.id) return;
+  e.preventDefault();
+  const { gx, gy } = clientToGame(e.clientX, e.clientY);
+  setStick(gx, gy);
+}
+function onUp(e) {
+  if (e.pointerId === stick.id) { stick.active = false; stick.id = null; stick.dx = 0; stick.dy = 0; }
+  if (e.pointerId === boostId) { uiBoost = false; boostId = null; }
+  if (e.pointerId === fireId) { uiFire = false; fireId = null; }
+}
+if (window.PointerEvent) {
+  canvas.addEventListener("pointerdown", onDown, { passive: false });
+  canvas.addEventListener("pointermove", onMove, { passive: false });
+  canvas.addEventListener("pointerup", onUp);
+  canvas.addEventListener("pointercancel", onUp);
+}
+document.addEventListener("gesturestart", (e) => e.preventDefault());
+document.addEventListener("dblclick", (e) => e.preventDefault());
+
+function consumeUiConfirm() { if (uiConfirm) { uiConfirm = false; return true; } return false; }
+function tapAnyConfirm() { return consume("Enter") || consume(" ") || consume("z") || consumeUiConfirm(); }
+// 発射: K / X / J キー、またはFIREボタン
+function shootHeld() { return held("k", "x", "j") || uiFire; }
 
 // ============================================================
 // 描画ヘルパ
@@ -930,7 +984,7 @@ function updatePlay() {
   if (flashTimer > 0) flashTimer--;
   if (player.invuln > 0) player.invuln--;
 
-  const boosting = held("Shift", "z") && player.battery > 0;
+  const boosting = (held("Shift", "z") || uiBoost) && player.battery > 0;
   player.boost = boosting;
   // ブースト中は背景スクロールも加速して「速くなった感」を出す
   const scroll = SCROLL_BASE + (boosting ? SCROLL_BASE * 1.4 : 0);
@@ -938,11 +992,16 @@ function updatePlay() {
 
   const speed = boosting ? 3.4 : 1.8;
   let mx = 0, my = 0;
-  if (held("ArrowLeft", "a"))  mx -= 1;
-  if (held("ArrowRight", "d")) mx += 1;
-  if (held("ArrowUp", "w"))    my -= 1;
-  if (held("ArrowDown", "s"))  my += 1;
-  if (mx && my) { mx *= 0.71; my *= 0.71; }
+  if (stick.active) {
+    // ジョイスティック(アナログ)
+    mx = stick.dx; my = stick.dy;
+  } else {
+    if (held("ArrowLeft", "a"))  mx -= 1;
+    if (held("ArrowRight", "d")) mx += 1;
+    if (held("ArrowUp", "w"))    my -= 1;
+    if (held("ArrowDown", "s"))  my += 1;
+    if (mx && my) { mx *= 0.71; my *= 0.71; }
+  }
   player.x += mx * speed;
   player.y += my * speed;
   // 機体の傾き(移動方向に応じて)
@@ -1327,6 +1386,87 @@ function drawSpeedLines() {
   ctx.restore();
 }
 
+// ------------------------------------------------------------
+// オンスクリーン操作UIの描画
+// ------------------------------------------------------------
+function drawStick() {
+  const s = STICK;
+  glow(s.cx, s.cy, s.base + 8, "#2a5cff", stick.active ? 0.28 : 0.16);
+  // ベース
+  ctx.globalAlpha = 0.55; ctx.fillStyle = "#0a1428";
+  ctx.beginPath(); ctx.arc(s.cx, s.cy, s.base, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,0.45)";
+  ctx.beginPath(); ctx.arc(s.cx, s.cy, s.base, 0, Math.PI * 2); ctx.stroke();
+  // 方向ヒント(十字の小さな三角)
+  ctx.fillStyle = "rgba(255,255,255,0.30)";
+  const a = s.base - 6;
+  for (const [dx, dy] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+    const tx = s.cx + dx * a, ty = s.cy + dy * a;
+    ctx.beginPath();
+    ctx.moveTo(tx + dy * 3 - dx * 0, ty + dx * 3 - dy * 0);
+    ctx.lineTo(tx - dy * 3, ty - dx * 3);
+    ctx.lineTo(tx + dx * 4, ty + dy * 4);
+    ctx.closePath(); ctx.fill();
+  }
+  // ノブ
+  const kx = s.cx + stick.dx * (s.base - s.knob);
+  const ky = s.cy + stick.dy * (s.base - s.knob);
+  const g = ctx.createRadialGradient(kx - 4, ky - 4, 1, kx, ky, s.knob);
+  g.addColorStop(0, "#dfe9ff"); g.addColorStop(1, "#3a5fb0");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(kx, ky, s.knob, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(255,255,255,0.7)";
+  ctx.beginPath(); ctx.arc(kx, ky, s.knob, 0, Math.PI * 2); ctx.stroke();
+}
+function drawBoostBtn() {
+  const b = BTN_BOOST, on = uiBoost && player.battery > 0, empty = player.battery <= 0;
+  glow(b.x, b.y, b.r + (on ? 10 : 5), on ? COL.bulletC : "#2a5cff", on ? 0.6 : 0.22);
+  const g = ctx.createRadialGradient(b.x - 5, b.y - 5, 2, b.x, b.y, b.r);
+  if (empty) { g.addColorStop(0, "#555"); g.addColorStop(1, "#222"); }
+  else if (on) { g.addColorStop(0, COL.battWarn); g.addColorStop(1, COL.bulletC); }
+  else { g.addColorStop(0, "#7fb0ff"); g.addColorStop(1, "#2547a8"); }
+  ctx.globalAlpha = 0.92; ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,0.7)";
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r - 2, 0, Math.PI * 2); ctx.stroke();
+  // 稲妻
+  ctx.fillStyle = empty ? "#888" : COL.white;
+  ctx.beginPath();
+  ctx.moveTo(b.x + 2, b.y - 8);
+  ctx.lineTo(b.x - 4, b.y + 1);
+  ctx.lineTo(b.x - 1, b.y + 1);
+  ctx.lineTo(b.x - 2, b.y + 8);
+  ctx.lineTo(b.x + 5, b.y - 1);
+  ctx.lineTo(b.x + 1, b.y - 1);
+  ctx.closePath(); ctx.fill();
+}
+function drawFireBtn() {
+  const b = BTN_FIRE, hasAmmo = player.ammo > 0, on = uiFire && hasAmmo;
+  glow(b.x, b.y, b.r + (on ? 10 : 5), on ? COL.pShotC : "#1a7a5a", on ? 0.6 : 0.2);
+  const g = ctx.createRadialGradient(b.x - 5, b.y - 5, 2, b.x, b.y, b.r);
+  if (!hasAmmo) { g.addColorStop(0, "#555"); g.addColorStop(1, "#222"); }
+  else if (on) { g.addColorStop(0, "#cfffe8"); g.addColorStop(1, COL.pShotC); }
+  else { g.addColorStop(0, "#5fe0b0"); g.addColorStop(1, "#168a5e"); }
+  ctx.globalAlpha = 0.92; ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,0.7)";
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r - 2, 0, Math.PI * 2); ctx.stroke();
+  drawStar(b.x, b.y - 3, 7, hasAmmo ? COL.itemStar : "#888");
+  ctx.fillStyle = hasAmmo ? COL.white : "#999";
+  ctx.font = "bold 8px 'Trebuchet MS', sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(hasAmmo ? ("x" + player.ammo) : "0", b.x, b.y + 10);
+  ctx.textAlign = "left";
+}
+function drawControls() {
+  drawStick();
+  drawBoostBtn();
+  if (stage.items) drawFireBtn();
+}
+
 // ============================================================
 // メインループ
 // ============================================================
@@ -1359,6 +1499,7 @@ function render() {
       ctx.fillText("!! LOW BATTERY !!", W / 2, 32);
       ctx.textAlign = "left";
     }
+    if (state === STATE.PLAY) drawControls();
   } else if (state === STATE.GAMEOVER) {
     drawGameOver();
   } else if (state === STATE.CLEAR) {

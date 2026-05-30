@@ -75,7 +75,7 @@
   <canvas id="game" width="320" height="240"></canvas>
   <div id="hint">
     <span class="pc">移動: <b>方向キー / WASD</b> &nbsp;｜&nbsp; ブースト: <b>Shift / Z</b> &nbsp;｜&nbsp; 決定: <b>Enter / Space</b></span>
-    <span class="touch"><b>ドラッグ</b>で移動 ｜ 右下<b>BOOST</b> ｜ 左下<b>★FIRE</b>(1-2〜) ｜ <b>タップ</b>で決定</span>
+    <span class="touch">左下<b>スティック</b>で移動 ｜ 右下<b>★FIRE</b>(1-2〜)・上に<b>BOOST</b> ｜ <b>タップ</b>で決定</span>
   </div>
 </div>
 
@@ -243,68 +243,61 @@ function consume(k) { if (pressedOnce[k]) { pressedOnce[k] = false; return true;
 function held(...ks) { return ks.some(k => keys[k]); }
 
 // ------------------------------------------------------------
-// タッチ入力(スマホ): ドラッグで移動 + 右下BOOST + 左下FIRE + タップで決定
+// オンスクリーン操作(マウス/タッチ共通・Pointer Events)
+//   左下: 移動ジョイスティック / 右下: FIRE(★) / その上: BOOST(小)
 // ------------------------------------------------------------
-const isTouch = (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) || ("ontouchstart" in window);
-const touch = {
-  move: { active: false, gx: 0, gy: 0 },
-  boost: false, fire: false,
-  moveId: null, boostId: null, fireId: null,
-};
-let touchConfirm = false;
+const STICK = { cx: 46, cy: H - 42, base: 28, knob: 13 };
+const BTN_FIRE  = { x: W - 34, y: H - 34, r: 21 };
+const BTN_BOOST = { x: W - 34, y: H - 86, r: 15 };
 
-// ボタン(ゲーム座標)。右下=BOOST、左下=FIRE
-const BTN  = { x: W - 32, y: H - 32, r: 26 };
-const BTNF = { x: 32,     y: H - 32, r: 26 };
+const stick = { active: false, id: null, dx: 0, dy: 0 };
+let boostId = null, fireId = null, uiBoost = false, uiFire = false, uiConfirm = false;
 
 function clientToGame(clientX, clientY) {
   const r = canvas.getBoundingClientRect();
   return { gx: (clientX - r.left) / r.width * W, gy: (clientY - r.top) / r.height * H };
 }
-function inCircle(b, gx, gy) { const dx = gx - b.x, dy = gy - b.y; return (dx*dx + dy*dy) <= (b.r + 8) * (b.r + 8); }
+function inBtn(b, gx, gy, pad) { const dx = gx - b.x, dy = gy - b.y, rr = b.r + (pad || 0); return dx*dx + dy*dy <= rr*rr; }
+function setStick(gx, gy) {
+  let dx = gx - STICK.cx, dy = gy - STICK.cy;
+  const d = Math.hypot(dx, dy), max = STICK.base;
+  if (d > max) { dx = dx / d * max; dy = dy / d * max; }
+  stick.dx = dx / max; stick.dy = dy / max; // [-1,1]
+}
+function onDown(e) {
+  e.preventDefault();
+  const { gx, gy } = clientToGame(e.clientX, e.clientY);
+  uiConfirm = true;
+  if (state !== STATE.PLAY) return;
+  if (inBtn(BTN_BOOST, gx, gy, 8)) { boostId = e.pointerId; uiBoost = true; return; }
+  if (stage.items && inBtn(BTN_FIRE, gx, gy, 8)) { fireId = e.pointerId; uiFire = true; return; }
+  // それ以外(主に画面左側)はジョイスティック
+  if (!stick.active) { stick.active = true; stick.id = e.pointerId; setStick(gx, gy); }
+}
+function onMove(e) {
+  if (e.pointerId !== stick.id) return;
+  e.preventDefault();
+  const { gx, gy } = clientToGame(e.clientX, e.clientY);
+  setStick(gx, gy);
+}
+function onUp(e) {
+  if (e.pointerId === stick.id) { stick.active = false; stick.id = null; stick.dx = 0; stick.dy = 0; }
+  if (e.pointerId === boostId) { uiBoost = false; boostId = null; }
+  if (e.pointerId === fireId) { uiFire = false; fireId = null; }
+}
+if (window.PointerEvent) {
+  canvas.addEventListener("pointerdown", onDown, { passive: false });
+  canvas.addEventListener("pointermove", onMove, { passive: false });
+  canvas.addEventListener("pointerup", onUp);
+  canvas.addEventListener("pointercancel", onUp);
+}
+document.addEventListener("gesturestart", (e) => e.preventDefault());
+document.addEventListener("dblclick", (e) => e.preventDefault());
 
-function handleTouchStart(e) {
-  e.preventDefault();
-  for (const t of e.changedTouches) {
-    const { gx, gy } = clientToGame(t.clientX, t.clientY);
-    touchConfirm = true;
-    if (inCircle(BTN, gx, gy)) { touch.boostId = t.identifier; touch.boost = true; }
-    else if (stage.items && inCircle(BTNF, gx, gy)) { touch.fireId = t.identifier; touch.fire = true; }
-    else if (touch.moveId === null) {
-      touch.moveId = t.identifier; touch.move.active = true; touch.move.gx = gx; touch.move.gy = gy;
-    }
-  }
-}
-function handleTouchMove(e) {
-  e.preventDefault();
-  for (const t of e.changedTouches) {
-    if (t.identifier === touch.moveId) {
-      const { gx, gy } = clientToGame(t.clientX, t.clientY);
-      touch.move.gx = gx; touch.move.gy = gy;
-    }
-  }
-}
-function handleTouchEnd(e) {
-  e.preventDefault();
-  for (const t of e.changedTouches) {
-    if (t.identifier === touch.moveId) { touch.move.active = false; touch.moveId = null; }
-    if (t.identifier === touch.boostId) { touch.boost = false; touch.boostId = null; }
-    if (t.identifier === touch.fireId) { touch.fire = false; touch.fireId = null; }
-  }
-}
-if (isTouch) {
-  canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
-  canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
-  canvas.addEventListener("touchend", handleTouchEnd, { passive: false });
-  canvas.addEventListener("touchcancel", handleTouchEnd, { passive: false });
-  document.addEventListener("gesturestart", (e) => e.preventDefault());
-  document.addEventListener("dblclick", (e) => e.preventDefault());
-}
-
-function consumeTouchConfirm() { if (touchConfirm) { touchConfirm = false; return true; } return false; }
-function tapAnyConfirm() { return consume("Enter") || consume(" ") || consume("z") || consumeTouchConfirm(); }
-// 発射: K / X / J キー、またはタッチFIREボタン
-function shootHeld() { return held("k", "x", "j") || touch.fire; }
+function consumeUiConfirm() { if (uiConfirm) { uiConfirm = false; return true; } return false; }
+function tapAnyConfirm() { return consume("Enter") || consume(" ") || consume("z") || consumeUiConfirm(); }
+// 発射: K / X / J キー、またはFIREボタン
+function shootHeld() { return held("k", "x", "j") || uiFire; }
 
 // ============================================================
 // 描画ヘルパ
@@ -1016,42 +1009,28 @@ function updatePlay() {
   if (flashTimer > 0) flashTimer--;
   if (player.invuln > 0) player.invuln--;
 
-  const boosting = (held("Shift", "z") || touch.boost) && player.battery > 0;
+  const boosting = (held("Shift", "z") || uiBoost) && player.battery > 0;
   player.boost = boosting;
   // ブースト中は背景スクロールも加速して「速くなった感」を出す
   const scroll = SCROLL_BASE + (boosting ? SCROLL_BASE * 1.4 : 0);
   if (cameraX < GOAL_X) { cameraX += scroll; if (cameraX > GOAL_X) cameraX = GOAL_X; }
 
   const speed = boosting ? 3.4 : 1.8;
-  let dyForTilt = 0;
-
-  if (touch.move.active) {
-    // タッチ: 自機中心を指の位置へ追従させる(速度上限つき)
-    const cx = player.x + player.w / 2, cy = player.y + player.h / 2;
-    let ddx = touch.move.gx - cx;
-    let ddy = touch.move.gy - cy;
-    const dist = Math.hypot(ddx, ddy);
-    const maxStep = speed; // 指追従の最大移動量/フレーム(キーボードと同等にしてダッシュ感を排除)
-    if (dist > 0.5) {
-      const step = Math.min(dist, maxStep);
-      player.x += ddx / dist * step;
-      player.y += ddy / dist * step;
-      dyForTilt = Math.max(-1, Math.min(1, ddy / 8));
-    }
+  let mx = 0, my = 0;
+  if (stick.active) {
+    // ジョイスティック(アナログ)
+    mx = stick.dx; my = stick.dy;
   } else {
-    // キーボード
-    let mx = 0, my = 0;
     if (held("ArrowLeft", "a"))  mx -= 1;
     if (held("ArrowRight", "d")) mx += 1;
     if (held("ArrowUp", "w"))    my -= 1;
     if (held("ArrowDown", "s"))  my += 1;
     if (mx && my) { mx *= 0.71; my *= 0.71; }
-    player.x += mx * speed;
-    player.y += my * speed;
-    dyForTilt = my;
   }
+  player.x += mx * speed;
+  player.y += my * speed;
   // 機体の傾き(移動方向に応じて)
-  player.tilt += ((dyForTilt * 0.12) - player.tilt) * 0.2;
+  player.tilt += ((my * 0.12) - player.tilt) * 0.2;
 
   player.x = Math.max(2, Math.min(W - player.w - 2, player.x));
   player.y = Math.max(26, Math.min(SEA_Y - player.h - 1, player.y));
@@ -1417,60 +1396,85 @@ function drawClear() {
   ctx.textAlign = "left";
 }
 
-// ============================================================
-// タッチUI: BOOSTボタン
-// ============================================================
-function drawBoostButton() {
-  const on = touch.boost && player.battery > 0;
-  const empty = player.battery <= 0;
-  // 外周グロー
-  glow(BTN.x, BTN.y, BTN.r + (on ? 12 : 6), on ? COL.bulletC : "#2a5cff", on ? 0.6 : 0.25);
-  // 台座
-  ctx.globalAlpha = 0.9;
-  ctx.beginPath(); ctx.arc(BTN.x, BTN.y, BTN.r, 0, Math.PI * 2);
-  const g = ctx.createRadialGradient(BTN.x - 6, BTN.y - 6, 2, BTN.x, BTN.y, BTN.r);
+// ------------------------------------------------------------
+// オンスクリーン操作UIの描画
+// ------------------------------------------------------------
+function drawStick() {
+  const s = STICK;
+  glow(s.cx, s.cy, s.base + 8, "#2a5cff", stick.active ? 0.28 : 0.16);
+  // ベース
+  ctx.globalAlpha = 0.55; ctx.fillStyle = "#0a1428";
+  ctx.beginPath(); ctx.arc(s.cx, s.cy, s.base, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,0.45)";
+  ctx.beginPath(); ctx.arc(s.cx, s.cy, s.base, 0, Math.PI * 2); ctx.stroke();
+  // 方向ヒント(十字の小さな三角)
+  ctx.fillStyle = "rgba(255,255,255,0.30)";
+  const a = s.base - 6;
+  for (const [dx, dy] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+    const tx = s.cx + dx * a, ty = s.cy + dy * a;
+    ctx.beginPath();
+    ctx.moveTo(tx + dy * 3 - dx * 0, ty + dx * 3 - dy * 0);
+    ctx.lineTo(tx - dy * 3, ty - dx * 3);
+    ctx.lineTo(tx + dx * 4, ty + dy * 4);
+    ctx.closePath(); ctx.fill();
+  }
+  // ノブ
+  const kx = s.cx + stick.dx * (s.base - s.knob);
+  const ky = s.cy + stick.dy * (s.base - s.knob);
+  const g = ctx.createRadialGradient(kx - 4, ky - 4, 1, kx, ky, s.knob);
+  g.addColorStop(0, "#dfe9ff"); g.addColorStop(1, "#3a5fb0");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(kx, ky, s.knob, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(255,255,255,0.7)";
+  ctx.beginPath(); ctx.arc(kx, ky, s.knob, 0, Math.PI * 2); ctx.stroke();
+}
+function drawBoostBtn() {
+  const b = BTN_BOOST, on = uiBoost && player.battery > 0, empty = player.battery <= 0;
+  glow(b.x, b.y, b.r + (on ? 10 : 5), on ? COL.bulletC : "#2a5cff", on ? 0.6 : 0.22);
+  const g = ctx.createRadialGradient(b.x - 5, b.y - 5, 2, b.x, b.y, b.r);
   if (empty) { g.addColorStop(0, "#555"); g.addColorStop(1, "#222"); }
   else if (on) { g.addColorStop(0, COL.battWarn); g.addColorStop(1, COL.bulletC); }
   else { g.addColorStop(0, "#7fb0ff"); g.addColorStop(1, "#2547a8"); }
-  ctx.fillStyle = g; ctx.fill();
+  ctx.globalAlpha = 0.92; ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
   ctx.globalAlpha = 1;
-  // リング
   ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,0.7)";
-  ctx.beginPath(); ctx.arc(BTN.x, BTN.y, BTN.r - 2, 0, Math.PI * 2); ctx.stroke();
-  // 稲妻アイコン
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r - 2, 0, Math.PI * 2); ctx.stroke();
+  // 稲妻
   ctx.fillStyle = empty ? "#888" : COL.white;
   ctx.beginPath();
-  ctx.moveTo(BTN.x + 3, BTN.y - 11);
-  ctx.lineTo(BTN.x - 6, BTN.y + 1);
-  ctx.lineTo(BTN.x - 1, BTN.y + 1);
-  ctx.lineTo(BTN.x - 3, BTN.y + 11);
-  ctx.lineTo(BTN.x + 7, BTN.y - 2);
-  ctx.lineTo(BTN.x + 1, BTN.y - 2);
+  ctx.moveTo(b.x + 2, b.y - 8);
+  ctx.lineTo(b.x - 4, b.y + 1);
+  ctx.lineTo(b.x - 1, b.y + 1);
+  ctx.lineTo(b.x - 2, b.y + 8);
+  ctx.lineTo(b.x + 5, b.y - 1);
+  ctx.lineTo(b.x + 1, b.y - 1);
   ctx.closePath(); ctx.fill();
 }
-
-// FIREボタン(武器ステージのみ)。弾が無いときはグレー
-function drawFireButton() {
-  const hasAmmo = player.ammo > 0;
-  const on = touch.fire && hasAmmo;
-  glow(BTNF.x, BTNF.y, BTNF.r + (on ? 12 : 6), on ? COL.pShotC : "#1a7a5a", on ? 0.6 : 0.22);
-  ctx.globalAlpha = 0.9;
-  ctx.beginPath(); ctx.arc(BTNF.x, BTNF.y, BTNF.r, 0, Math.PI * 2);
-  const g = ctx.createRadialGradient(BTNF.x - 6, BTNF.y - 6, 2, BTNF.x, BTNF.y, BTNF.r);
+function drawFireBtn() {
+  const b = BTN_FIRE, hasAmmo = player.ammo > 0, on = uiFire && hasAmmo;
+  glow(b.x, b.y, b.r + (on ? 10 : 5), on ? COL.pShotC : "#1a7a5a", on ? 0.6 : 0.2);
+  const g = ctx.createRadialGradient(b.x - 5, b.y - 5, 2, b.x, b.y, b.r);
   if (!hasAmmo) { g.addColorStop(0, "#555"); g.addColorStop(1, "#222"); }
   else if (on) { g.addColorStop(0, "#cfffe8"); g.addColorStop(1, COL.pShotC); }
   else { g.addColorStop(0, "#5fe0b0"); g.addColorStop(1, "#168a5e"); }
-  ctx.fillStyle = g; ctx.fill();
+  ctx.globalAlpha = 0.92; ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
   ctx.globalAlpha = 1;
   ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,0.7)";
-  ctx.beginPath(); ctx.arc(BTNF.x, BTNF.y, BTNF.r - 2, 0, Math.PI * 2); ctx.stroke();
-  // ★ + 残弾
-  drawStar(BTNF.x, BTNF.y - 4, 8, hasAmmo ? COL.itemStar : "#888");
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r - 2, 0, Math.PI * 2); ctx.stroke();
+  drawStar(b.x, b.y - 3, 7, hasAmmo ? COL.itemStar : "#888");
   ctx.fillStyle = hasAmmo ? COL.white : "#999";
-  ctx.font = "bold 9px 'Trebuchet MS', sans-serif";
+  ctx.font = "bold 8px 'Trebuchet MS', sans-serif";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText(hasAmmo ? ("x" + player.ammo) : "0", BTNF.x, BTNF.y + 11);
+  ctx.fillText(hasAmmo ? ("x" + player.ammo) : "0", b.x, b.y + 10);
   ctx.textAlign = "left";
+}
+function drawControls() {
+  drawStick();
+  drawBoostBtn();
+  if (stage.items) drawFireBtn();
 }
 
 // ブースト中の速度線(横に流れる白いストリーク)
@@ -1521,7 +1525,7 @@ function render() {
       ctx.textAlign = "left";
     }
     // スマホ操作UI
-    if (isTouch && state === STATE.PLAY) { drawBoostButton(); if (stage.items) drawFireButton(); }
+    if (state === STATE.PLAY) drawControls();
   } else if (state === STATE.GAMEOVER) {
     drawGameOver();
   } else if (state === STATE.CLEAR) {
@@ -1541,7 +1545,7 @@ function update() {
       // 着陸＆降車が一段落するまでは、プレイ中の決定入力/タップを捨てる(誤発進防止)
       const clearReady = player.landed && player.pilotPhase > 30;
       if (!clearReady) {
-        consume("Enter"); consume(" "); consume("z"); touchConfirm = false;
+        consume("Enter"); consume(" "); consume("z"); uiConfirm = false;
       } else if (tapAnyConfirm()) {
         if (stageIndex < STAGES.length - 1) {
           startStage(stageIndex + 1, 100); // 次ステージは満タンから
