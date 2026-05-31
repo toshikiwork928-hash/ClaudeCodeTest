@@ -1,0 +1,12 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Capacitor / Android build output (generated locally)
+/android/
+.gradle/
+*.apk
+*.aab
+*.keystore
+local.properties
+.DS_Store

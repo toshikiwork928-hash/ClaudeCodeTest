@@ -1,0 +1,19 @@
+{
+  "name": "drone-taxi",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DRONE TAXI - 横スクロール・ドローン操縦ゲーム (Capacitor Android app)",
+  "scripts": {
+    "sync": "cap sync",
+    "open:android": "cap open android",
+    "add:android": "cap add android",
+    "build:android": "cap sync android && cap open android"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/android": "^6.1.2"
+  }
+}

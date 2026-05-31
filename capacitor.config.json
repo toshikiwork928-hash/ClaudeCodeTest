@@ -1,0 +1,11 @@
+{
+  "appId": "com.dronetaxi.game",
+  "appName": "Drone Taxi",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#05060f"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

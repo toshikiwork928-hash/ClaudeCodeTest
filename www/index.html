@@ -6,17 +6,16 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#05060f">
-<title>DRONE TAXI - 海上ステージ1 (16bit/mobile)</title>
+<title>Drone Taxi</title>
 <style>
   html, body {
     margin: 0;
     padding: 0;
     background: #05060f;
     color: #fff;
-    font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+    font-family: "Roboto", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
     height: 100%;
     overflow: hidden;
-    /* スマホでのタップ遅延・選択・長押しメニュー・スクロールを抑止 */
     touch-action: none;
     -webkit-touch-callout: none;
     -webkit-user-select: none;
@@ -25,58 +24,66 @@
     overscroll-behavior: none;
   }
   #wrap {
+    position: fixed;
+    inset: 0;
     width: 100%;
-    height: 100%;
-    /* iOS Safari のアドレスバー込みの実高さ */
     height: 100dvh;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    background: #04050c;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     box-sizing: border-box;
-    background:
-      radial-gradient(1200px 600px at 50% -10%, #16224a 0%, #070912 60%, #04050c 100%);
   }
   canvas {
     image-rendering: pixelated;
     image-rendering: crisp-edges;
     background: #000;
-    border-radius: 6px;
-    box-shadow:
-      0 0 0 3px #0a1430,
-      0 0 0 6px #1b2a5e,
-      0 10px 40px rgba(0,0,0,.7),
-      0 0 60px rgba(60,120,255,.18);
-    max-width: 98vw;
-    max-height: 88vh;
-    touch-action: none;
+    display: block;
+    /* JS で画面いっぱい(横向き)にフィット */
   }
-  #hint {
-    font-size: 12px;
-    color: #8fa3c8;
-    letter-spacing: .5px;
+  /* 縦持ちのときは「横にしてね」オーバーレイ */
+  #rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    background: radial-gradient(900px 600px at 50% 30%, #16224a 0%, #070912 70%, #04050c 100%);
+    color: #cfe0ff;
     text-align: center;
-    padding: 0 8px;
+    font-weight: 600;
   }
-  #hint b { color: #ffd23f; }
-  /* スマホでは操作説明を簡略化 */
-  @media (pointer: coarse), (max-width: 640px) {
-    #hint .pc { display: none; }
+  #rotate .ph {
+    width: 56px; height: 92px;
+    border: 4px solid #6f8fff; border-radius: 12px;
+    position: relative;
+    animation: tilt 1.6s ease-in-out infinite;
   }
-  @media (pointer: fine) {
-    #hint .touch { display: none; }
+  #rotate .ph::after {
+    content: ""; position: absolute; left: 50%; bottom: 6px;
+    width: 16px; height: 4px; border-radius: 2px; background: #6f8fff; transform: translateX(-50%);
+  }
+  @keyframes tilt { 0%,40%{transform:rotate(0)} 60%,100%{transform:rotate(-90deg)} }
+  #rotate .t1 { font-size: 18px; color: #fff; letter-spacing: .5px; }
+  #rotate .t2 { font-size: 13px; color: #9fb4dd; }
+  @media (orientation: portrait) {
+    #wrap { display: none; }
+    #rotate { display: flex; }
   }
 </style>
 </head>
 <body>
 <div id="wrap">
-  <canvas id="game" width="320" height="240"></canvas>
-  <div id="hint">
-    <span class="pc">移動: <b>方向キー / WASD</b> &nbsp;｜&nbsp; ブースト: <b>Shift / Z</b> &nbsp;｜&nbsp; 決定: <b>Enter / Space</b></span>
-    <span class="touch">左下<b>スティック</b>で移動 ｜ 右下<b>★FIRE</b>(1-2〜)・上に<b>BOOST</b> ｜ <b>タップ</b>で決定</span>
-  </div>
+  <canvas id="game" width="480" height="240"></canvas>
+</div>
+<div id="rotate">
+  <div class="ph"></div>
+  <div class="t1">画面を横にしてください</div>
+  <div class="t2">Drone Taxi は横向きでプレイします</div>
 </div>
 
 <script>
@@ -84,21 +91,19 @@
 "use strict";
 
 // ============================================================
-// 基本セットアップ (SNES風: 320x240)
+// 基本セットアップ (横向き 480x240)
 // ============================================================
-const W = 320, H = 240;
+const W = 480, H = 240;
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 
 function fitCanvas() {
-  // 操作説明ぶんの余白を確保しつつ、画面いっぱいに拡大
-  const maxW = Math.min(window.innerWidth * 0.98, 1280);
-  const maxH = window.innerHeight * 0.88;
-  let scale = Math.max(0.5, Math.min(maxW / W, maxH / H));
-  // 表示倍率は連続値でOK(できるだけ大きく)。CSS側でpixelated指定済み
-  canvas.style.width  = (W * scale) + "px";
-  canvas.style.height = (H * scale) + "px";
+  // 画面いっぱいにアスペクト維持で拡大(レターボックス)
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const scale = Math.min(vw / W, vh / H);
+  canvas.style.width  = Math.round(W * scale) + "px";
+  canvas.style.height = Math.round(H * scale) + "px";
 }
 window.addEventListener("resize", fitCanvas);
 window.addEventListener("orientationchange", () => setTimeout(fitCanvas, 150));
@@ -461,7 +466,7 @@ function toggleMute() {
   audioMuted = !audioMuted;
   if (masterGain) masterGain.gain.value = audioMuted ? 0 : 0.85;
 }
-const MUTE = { x: W - 13, y: 32, r: 9 }; // ミュートボタン(右上)
+const MUTE = { x: W - 20, y: 20, r: 12 }; // ミュートボタン(右上)
 function drawMute() {
   const b = MUTE;
   ctx.globalAlpha = 0.55; ctx.fillStyle = "#0a1428";
@@ -526,7 +531,13 @@ function bgTheme() { return state === STATE.TITLE ? WORLDS[menuSel].theme : stag
 function isWorldLast(i) { return i >= STAGES.length - 1 || STAGES[i + 1].world !== STAGES[i].world; }
 
 // タイトルのステージ選択ボタンの矩形(ゲーム座標)
-function menuRect(i) { const w = 176, h = 26; return { x: (W - w) / 2, y: 118 + i * 30, w, h }; }
+// 横並びのステージ選択カード(横画面向け)
+function menuRect(i) {
+  const w = 128, h = 128, gap = 20;
+  const total = WORLDS.length * w + (WORLDS.length - 1) * gap;
+  const x0 = (W - total) / 2;
+  return { x: x0 + i * (w + gap), y: 90, w, h };
+}
 // ワールド(ステージ)を選んで開始
 function startWorld(i) { menuSel = i; startStage(WORLDS[i].start, 100); }
 
@@ -611,14 +622,14 @@ function drawSky(mode) {
   ctx.fillStyle = mode === "night" ? gSkyNight : mode === "sunset" ? gSkySunset : gSky;
   ctx.fillRect(0, 0, W, SEA_Y);
   if (mode === "day") {
-    const sx = 250, sy = 46;
+    const sx = W * 0.78, sy = 46;
     glow(sx, sy, 60, COL.sunGlow, 0.5);
     glow(sx, sy, 30, COL.sun, 0.9);
     ctx.fillStyle = COL.sun;
     ctx.beginPath(); ctx.arc(sx, sy, 14, 0, Math.PI * 2); ctx.fill();
   } else if (mode === "sunset") {
     // 大きな夕日(低い位置)
-    const sx = 160, sy = 120;
+    const sx = W * 0.4, sy = 120;
     glow(sx, sy, 90, "#ff7a3c", 0.45);
     glow(sx, sy, 50, COL.ssSkyHz, 0.7);
     ctx.fillStyle = "#ffd98a";
@@ -632,7 +643,7 @@ function drawSky(mode) {
     }
     ctx.globalAlpha = 1;
     // 月
-    const mx = 248, my = 44;
+    const mx = W * 0.78, my = 44;
     glow(mx, my, 32, "#bcd0ff", 0.4);
     ctx.fillStyle = "#eef4ff";
     ctx.beginPath(); ctx.arc(mx, my, 12, 0, Math.PI * 2); ctx.fill();
@@ -689,7 +700,7 @@ function drawSea(mode) {
   // 太陽のきらめき帯
   if (mode !== "night") {
     const glC = mode === "sunset" ? "#ffd98a" : COL.glitter;
-    const baseCx = mode === "sunset" ? 160 : 250;
+    const baseCx = mode === "sunset" ? W * 0.4 : W * 0.78;
     for (let y = SEA_Y + 4; y < H; y += 3) {
       const t = (y - SEA_Y) / (H - SEA_Y);
       const spread = 10 + t * 80;
@@ -939,7 +950,7 @@ function drawGoalFlag(fx, fyTop) {
   ctx.lineTo(fx + 2, fyTop + 16);
   ctx.fill();
   ctx.fillStyle = COL.white;
-  ctx.font = "bold 9px 'Trebuchet MS', sans-serif";
+  ctx.font = "bold 9px Roboto, 'Helvetica Neue', Arial, sans-serif";
   ctx.textBaseline = "top";
   ctx.textAlign = "left";
   ctx.fillText("GOAL", fx + 5, fyTop + 4);
@@ -1463,79 +1474,70 @@ function drawParticles() {
 // ============================================================
 // HUD
 // ============================================================
+// 半透明の角丸ピル(モダンHUDの土台)
+function hudPill(x, y, w, h) {
+  rrect(x + 1, y + 2, w, h, h / 2, "rgba(0,0,0,0.35)"); // 影
+  ctx.save();
+  ctx.beginPath(); roundPath(x, y, w, h, h / 2); ctx.clip();
+  const g = ctx.createLinearGradient(0, y, 0, y + h);
+  g.addColorStop(0, "rgba(34,46,84,0.92)"); g.addColorStop(1, "rgba(12,18,38,0.92)");
+  ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+  ctx.globalAlpha = 0.12; ctx.fillStyle = COL.white; ctx.fillRect(x, y, w, h / 2); ctx.globalAlpha = 1;
+  ctx.restore();
+  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(150,180,255,0.22)";
+  ctx.beginPath(); roundPath(x, y, w, h, h / 2); ctx.stroke();
+}
 function drawHUD() {
-  // パネル(グラデ + 下ライン)
-  const gP = ctx.createLinearGradient(0, 0, 0, 22);
-  gP.addColorStop(0, "rgba(8,12,28,0.95)");
-  gP.addColorStop(1, "rgba(8,12,28,0.6)");
-  ctx.fillStyle = gP; ctx.fillRect(0, 0, W, 22);
-  px(0, 22, W, 1, COL.metalSh);
-  px(0, 23, W, 1, "rgba(60,120,255,0.4)");
+  // 上端の進捗バー(全幅・細い)
+  const prog = Math.min(1, cameraX / GOAL_X);
+  ctx.fillStyle = "rgba(8,12,24,0.55)"; ctx.fillRect(0, 0, W, 3);
+  const gpr = ctx.createLinearGradient(0, 0, W, 0);
+  gpr.addColorStop(0, COL.foam); gpr.addColorStop(1, COL.taxi);
+  ctx.fillStyle = gpr; ctx.fillRect(0, 0, W * prog, 3);
+  glow(W * prog, 1.5, 7, COL.taxiHi, 0.7);
 
-  ctx.fillStyle = COL.white;
-  ctx.font = "bold 9px 'Trebuchet MS', sans-serif";
-  ctx.textBaseline = "middle";
-  ctx.textAlign = "left";
-  ctx.fillText("BATTERY", 6, 11);
-
-  const bx = 64, by = 6, bw = 96, bh = 10;
-  rrect(bx - 1, by - 1, bw + 2, bh + 2, 3, COL.ink);
-  rrect(bx, by, bw, bh, 2, "#0c1428");
-  px(bx + bw, by + 2, 3, bh - 4, COL.metal); // 端子
+  // バッテリーピル
   const ratio = Math.max(0, player.battery / player.maxBattery);
   const col = ratio > 0.5 ? COL.battGood : ratio > 0.22 ? COL.battWarn : COL.battBad;
+  hudPill(10, 9, 126, 22);
+  // バッテリーアイコン
+  rrect(18, 15, 16, 10, 2, "rgba(255,255,255,0.85)");
+  rrect(19, 16, 14, 8, 1, "#0c1428");
+  px(34, 17, 2, 6, "rgba(255,255,255,0.85)"); // 端子
+  const bx = 20, by = 17, bw = 12, bh = 6;
   const lowBlink = ratio <= 0.22 && Math.floor(frame / 6) % 2 === 0;
   if (!lowBlink) {
-    ctx.save();
-    ctx.beginPath(); roundPath(bx + 1, by + 1, (bw - 2) * ratio, bh - 2, 2); ctx.clip();
-    const gB = ctx.createLinearGradient(0, by, 0, by + bh);
-    gB.addColorStop(0, COL.white); gB.addColorStop(0.25, col); gB.addColorStop(1, col);
-    ctx.fillStyle = gB; ctx.fillRect(bx + 1, by + 1, (bw - 2) * ratio, bh - 2);
-    ctx.restore();
-    if (ratio <= 0.4) glow(bx + (bw - 2) * ratio, by + bh / 2, 8, col, 0.5);
+    ctx.save(); ctx.beginPath(); roundPath(bx, by, Math.max(0, bw * ratio), bh, 1); ctx.clip();
+    ctx.fillStyle = col; ctx.fillRect(bx, by, bw * ratio, bh); ctx.restore();
   }
   ctx.fillStyle = COL.white;
-  ctx.fillText(Math.ceil(ratio * 100) + "%", bx + bw + 9, 11);
+  ctx.font = "700 12px Roboto, 'Helvetica Neue', Arial, sans-serif";
+  ctx.textBaseline = "middle"; ctx.textAlign = "right";
+  ctx.fillText(Math.ceil(ratio * 100) + "%", 128, 20);
 
-  // ステージ名(右端)
-  ctx.fillStyle = COL.foam2;
-  ctx.font = "bold 9px 'Trebuchet MS', sans-serif";
-  ctx.textAlign = "right"; ctx.textBaseline = "middle";
-  ctx.fillText("STAGE " + stage.name, W - 6, 11);
-  ctx.textAlign = "left";
+  // ステージチップ
+  const cx = 146;
+  hudPill(cx, 9, 84, 22);
+  const dot = stage.theme === "sea" ? COL.seaMid : stage.theme === "mountain" ? COL.pine : COL.bldgHi;
+  ctx.beginPath(); ctx.arc(cx + 14, 20, 5, 0, Math.PI * 2); ctx.fillStyle = dot; ctx.fill();
+  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.stroke();
+  ctx.fillStyle = "#aebfe0";
+  ctx.font = "600 8px Roboto, 'Helvetica Neue', Arial, sans-serif";
+  ctx.textAlign = "left"; ctx.fillText("STAGE", cx + 24, 16);
+  ctx.fillStyle = COL.white;
+  ctx.font = "800 13px Roboto, 'Helvetica Neue', Arial, sans-serif";
+  ctx.fillText(stage.name, cx + 24, 25);
 
-  // 進捗バー(STAGEラベルの手前まで)
-  const prog = Math.min(1, cameraX / GOAL_X);
-  const px0 = 198, pw = 72;
-  rrect(px0 - 1, 6, pw + 2, 9, 3, COL.ink);
-  rrect(px0, 7, pw, 7, 2, "#0c1428");
-  ctx.save();
-  ctx.beginPath(); roundPath(px0 + 1, 8, (pw - 2) * prog, 5, 2); ctx.clip();
-  const gp = ctx.createLinearGradient(0, 8, 0, 13);
-  gp.addColorStop(0, COL.foam); gp.addColorStop(1, COL.seaMid);
-  ctx.fillStyle = gp; ctx.fillRect(px0 + 1, 8, (pw - 2) * prog, 5);
-  ctx.restore();
-  // ゴール旗
-  px(px0 + pw - 3, 4, 2, 5, COL.metal);
-  px(px0 + pw - 1, 4, 4, 3, COL.bulletC);
-  // 自機マーカー
-  px(px0 + 1 + (pw - 5) * prog, 5, 3, 9, COL.taxi);
-
-  // 武器/弾数(2段目・武器が使えるステージのみ)
+  // 武器ピル(武器ステージのみ)
   if (stage.items) {
-    const wy = 30;
-    drawStar(10, wy, 5, player.ammo > 0 ? COL.itemStar : COL.metalSh);
-    ctx.fillStyle = player.ammo > 0 ? COL.white : COL.metal;
-    ctx.font = "bold 10px 'Trebuchet MS', sans-serif";
-    ctx.textBaseline = "middle"; ctx.textAlign = "left";
-    if (player.ammo > 0) {
-      ctx.fillText("WEAPON x" + player.ammo, 20, wy);
-      ctx.fillStyle = COL.foam2;
-      ctx.font = "8px 'Trebuchet MS', sans-serif";
-      ctx.fillText("[K/X] FIRE", 92, wy);
-    } else {
-      ctx.fillText("WEAPON: ★を取れ", 20, wy);
-    }
+    const wx = 240;
+    hudPill(wx, 9, 74, 22);
+    const has = player.ammo > 0;
+    drawStar(wx + 15, 20, 6, has ? COL.itemStar : "#6a7488");
+    ctx.fillStyle = has ? COL.white : "#7a8498";
+    ctx.font = "800 13px Roboto, 'Helvetica Neue', Arial, sans-serif";
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillText(has ? "×" + player.ammo : "なし", wx + 26, 20);
   }
 }
 
@@ -1829,22 +1831,33 @@ function drawPilot(x, y, phase) {
 // ============================================================
 // 大文字(グラデ + アウトライン + 影)
 // ============================================================
+// モダンな見出し: 細めのアウトライン + やわらかい影 + グラデ
 function drawBigText(text, cx, cy, c1, c2, size) {
   size = size || 26;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = "900 " + size + "px 'Trebuchet MS', sans-serif";
-  // 影
-  ctx.fillStyle = "rgba(0,0,0,0.45)";
-  ctx.fillText(text, cx + 2, cy + 3);
-  // アウトライン
-  ctx.lineWidth = 4; ctx.strokeStyle = COL.ink; ctx.lineJoin = "round";
+  ctx.font = "800 " + size + "px Roboto, 'Helvetica Neue', Arial, sans-serif";
+  ctx.save();
+  // やわらかいドロップシャドウ
+  ctx.shadowColor = "rgba(0,0,0,0.5)";
+  ctx.shadowBlur = size * 0.35;
+  ctx.shadowOffsetY = 2;
+  // 薄いアウトライン
+  ctx.lineWidth = 2; ctx.strokeStyle = "rgba(8,12,24,0.55)"; ctx.lineJoin = "round";
   ctx.strokeText(text, cx, cy);
+  ctx.shadowColor = "transparent";
   // グラデ塗り
   const g = ctx.createLinearGradient(0, cy - size / 2, 0, cy + size / 2);
   g.addColorStop(0, c1); g.addColorStop(1, c2);
   ctx.fillStyle = g;
   ctx.fillText(text, cx, cy);
+  ctx.restore();
+}
+// 角丸パネル(モダンUIの土台)
+function panel(x, y, w, h, r, fill, alpha) {
+  ctx.globalAlpha = alpha == null ? 1 : alpha;
+  rrect(x, y, w, h, r, fill);
+  ctx.globalAlpha = 1;
 }
 
 // ============================================================
@@ -1852,44 +1865,96 @@ function drawBigText(text, cx, cy, c1, c2, size) {
 // ============================================================
 function drawTitle() {
   drawBackground(); // 選択中ワールドのテーマをプレビュー
-  const ty = 84 + Math.sin(frame * 0.05) * 5;
+  // うっすら暗幕でUIを見やすく
+  ctx.fillStyle = "rgba(6,10,22,0.42)"; ctx.fillRect(0, 0, W, H);
+  const ty = 50 + Math.sin(frame * 0.05) * 4;
   drawTaxi2(W / 2 - 14, ty, frame * 0.6, false, false, Math.sin(frame * 0.05) * 0.06);
   drawParticles();
 
-  glow(W / 2, 40, 110, "#2a5cff", 0.18);
-  drawBigText("DRONE TAXI", W / 2, 38, COL.taxiHi, COL.taxiSh, 28);
+  glow(W / 2, 34, 140, "#2a5cff", 0.20);
+  drawBigText("DRONE TAXI", W / 2, 32, COL.taxiHi, COL.taxiSh, 34);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.font = "bold 10px 'Trebuchet MS', sans-serif";
-  ctx.fillStyle = COL.white;
-  ctx.fillText("ステージをえらんでスタート", W / 2, 106);
+  ctx.font = "600 11px Roboto, 'Helvetica Neue', Arial, sans-serif";
+  ctx.fillStyle = "#cfe0ff";
+  ctx.fillText("ステージをえらんでスタート", W / 2, 78);
 
-  for (let i = 0; i < WORLDS.length; i++) drawMenuOption(i);
+  for (let i = 0; i < WORLDS.length; i++) drawMenuCard(i);
 
   ctx.textAlign = "center";
-  ctx.font = "8px 'Trebuchet MS', sans-serif";
-  ctx.fillStyle = "#bcd6ff";
-  ctx.fillText("各ステージ 1コース目は武器なしのやさしいコース", W / 2, 212);
-  ctx.fillStyle = "#9bb6e6";
-  ctx.fillText("スティックで移動 / ★を取ると敵を撃墜 / 上下キーでも選択", W / 2, 226);
+  ctx.font = "500 9px Roboto, 'Helvetica Neue', Arial, sans-serif";
+  ctx.fillStyle = "#9fb4dd";
+  ctx.fillText("各ステージ 1コース目は武器なしのやさしいコース　／　★を取ると敵を撃墜", W / 2, 228);
   ctx.textAlign = "left";
 }
-function drawMenuOption(i) {
+// テーマのサムネ(カード上部の小さなプレビュー)
+function drawThumb(theme, x, y, w, h) {
+  ctx.save();
+  ctx.beginPath(); roundPath(x, y, w, h, 6); ctx.clip();
+  if (theme === "sea") {
+    let g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, COL.skyMid); g.addColorStop(1, COL.skyLo);
+    ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = COL.sun; ctx.beginPath(); ctx.arc(x + w - 16, y + 14, 7, 0, 7); ctx.fill();
+    g = ctx.createLinearGradient(0, y + h * 0.6, 0, y + h);
+    g.addColorStop(0, COL.seaTop); g.addColorStop(1, COL.seaLo);
+    ctx.fillStyle = g; ctx.fillRect(x, y + h * 0.6, w, h * 0.4);
+    ctx.fillStyle = COL.foam2; for (let i = 0; i < w; i += 10) px(x + i, y + h * 0.6, 6, 2, COL.foam2);
+  } else if (theme === "mountain") {
+    let g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, COL.skyMid); g.addColorStop(1, "#bcd0ee");
+    ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = COL.mtnMid;
+    ctx.beginPath(); ctx.moveTo(x + 6, y + h); ctx.lineTo(x + w * 0.42, y + h * 0.32); ctx.lineTo(x + w * 0.7, y + h); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = COL.snow; ctx.beginPath(); ctx.moveTo(x + w * 0.42, y + h * 0.32); ctx.lineTo(x + w * 0.36, y + h * 0.46); ctx.lineTo(x + w * 0.48, y + h * 0.46); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = COL.pine; ctx.fillRect(x, y + h * 0.78, w, h * 0.22);
+  } else {
+    let g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, "#101a3e"); g.addColorStop(1, "#243056");
+    ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = "#eef4ff"; ctx.beginPath(); ctx.arc(x + w - 16, y + 13, 5, 0, 7); ctx.fill();
+    for (let i = 0; i < 6; i++) {
+      const bw = 12, bx = x + 6 + i * 16, bh = 16 + (i % 3) * 12;
+      ctx.fillStyle = COL.bldgSh; ctx.fillRect(bx, y + h - bh, bw, bh);
+      ctx.fillStyle = COL.winLit;
+      for (let wy = y + h - bh + 3; wy < y + h - 3; wy += 6) for (let wx = bx + 2; wx < bx + bw - 2; wx += 5) if ((wx + wy) % 3 === 0) px(wx, wy, 2, 2, COL.winLit);
+    }
+  }
+  ctx.restore();
+}
+function drawMenuCard(i) {
   const r = menuRect(i), sel = i === menuSel, wn = WORLDS[i];
-  if (sel) glow(W / 2, r.y + r.h / 2, 80, "#ffd23f", 0.16);
-  ctx.globalAlpha = sel ? 0.95 : 0.6;
-  rrect(r.x, r.y, r.w, r.h, 6, sel ? "#1a2a52" : "#0c1428");
-  ctx.globalAlpha = 1;
-  ctx.lineWidth = 2; ctx.strokeStyle = sel ? COL.battWarn : "rgba(255,255,255,0.25)";
-  ctx.beginPath(); roundPath(r.x, r.y, r.w, r.h, 6); ctx.stroke();
-  // テーマ色アイコン
-  const ic = wn.theme === "sea" ? COL.seaMid : wn.theme === "mountain" ? COL.pine : COL.bldg;
-  rrect(r.x + 7, r.y + 6, 14, 14, 3, ic);
-  px(r.x + 7, r.y + 6, 14, 2, COL.white);
-  ctx.textAlign = "left"; ctx.textBaseline = "middle";
-  ctx.font = "bold 12px 'Trebuchet MS', sans-serif";
-  ctx.fillStyle = sel ? COL.white : "#b8c6e0";
-  ctx.fillText("ステージ" + (i + 1) + "  " + wn.name, r.x + 28, r.y + r.h / 2);
-  if (sel && Math.floor(frame / 20) % 2 === 0) { ctx.fillStyle = COL.battWarn; ctx.font = "bold 11px 'Trebuchet MS', sans-serif"; ctx.fillText("▶", r.x - 13, r.y + r.h / 2); }
+  const yo = sel ? -4 : 0; // 選択中は少し持ち上げる
+  const x = r.x, y = r.y + yo, w = r.w, h = r.h;
+  if (sel) glow(x + w / 2, y + h / 2, 90, "#ffd23f", 0.18);
+  // 影
+  rrect(x + 2, y + 4, w, h, 12, "rgba(0,0,0,0.45)");
+  // 本体
+  ctx.save(); ctx.beginPath(); roundPath(x, y, w, h, 12); ctx.clip();
+  const g = ctx.createLinearGradient(0, y, 0, y + h);
+  g.addColorStop(0, sel ? "#22315c" : "#161e36"); g.addColorStop(1, sel ? "#141d3a" : "#0c1326");
+  ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+  drawThumb(wn.theme, x + 10, y + 10, w - 20, 56);
+  ctx.restore();
+  // 枠
+  ctx.lineWidth = sel ? 2.5 : 1.5;
+  ctx.strokeStyle = sel ? COL.battWarn : "rgba(150,180,255,0.25)";
+  ctx.beginPath(); roundPath(x, y, w, h, 12); ctx.stroke();
+  // テキスト
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillStyle = "#9fb4dd";
+  ctx.font = "600 9px Roboto, 'Helvetica Neue', Arial, sans-serif";
+  ctx.fillText("STAGE " + (i + 1), x + w / 2, y + 78);
+  ctx.fillStyle = sel ? COL.white : "#cdd9ee";
+  ctx.font = "800 15px Roboto, 'Helvetica Neue', Arial, sans-serif";
+  ctx.fillText(wn.name, x + w / 2, y + 96);
+  // 選択中バッジ
+  if (sel) {
+    const by = y + h - 16;
+    rrect(x + w / 2 - 30, by, 60, 16, 8, COL.battWarn);
+    ctx.fillStyle = "#1a1200"; ctx.font = "800 10px Roboto, 'Helvetica Neue', Arial, sans-serif";
+    ctx.fillText(Math.floor(frame / 24) % 2 === 0 ? "▶ スタート" : "タップ", x + w / 2, by + 8);
+  }
+  ctx.textAlign = "left";
 }
 
 // ============================================================
@@ -1902,14 +1967,14 @@ function drawGameOver() {
   glow(W / 2, 92, 120, "#ff2a2a", 0.18);
   drawBigText("GAME OVER", W / 2, 92, "#ff8a8a", COL.battBad, 32);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.font = "bold 11px 'Trebuchet MS', sans-serif";
+  ctx.font = "bold 11px Roboto, 'Helvetica Neue', Arial, sans-serif";
   ctx.fillStyle = COL.battWarn;
   ctx.fillText(result || "BATTERY EMPTY", W / 2, 122);
   ctx.fillStyle = COL.white;
-  ctx.font = "11px 'Trebuchet MS', sans-serif";
+  ctx.font = "11px Roboto, 'Helvetica Neue', Arial, sans-serif";
   ctx.fillText("到達度  " + Math.floor((cameraX / GOAL_X) * 100) + "%", W / 2, 142);
   if (Math.floor(frame / 24) % 2 === 0) {
-    ctx.font = "bold 12px 'Trebuchet MS', sans-serif";
+    ctx.font = "bold 12px Roboto, 'Helvetica Neue', Arial, sans-serif";
     ctx.fillStyle = COL.white;
     ctx.fillText("PRESS ENTER TO RETRY", W / 2, 180);
   }
@@ -1934,15 +1999,15 @@ function drawClear() {
   const title = isLast && player.landed ? WORLDS[stage.world].name + " クリア!" : "STAGE " + stage.name + " CLEAR!";
   drawBigText(title, W / 2, 64, COL.taxiHi, COL.taxiSh, 24);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.font = "bold 11px 'Trebuchet MS', sans-serif";
+  ctx.font = "bold 11px Roboto, 'Helvetica Neue', Arial, sans-serif";
   ctx.fillStyle = COL.white;
   ctx.fillText(player.landed ? "ドローンタクシー、無事に到着！" : "着陸中…", W / 2, 86);
   ctx.fillStyle = COL.battGood;
-  ctx.font = "bold 10px 'Trebuchet MS', sans-serif";
+  ctx.font = "bold 10px Roboto, 'Helvetica Neue', Arial, sans-serif";
   ctx.fillText("残りバッテリー " + Math.ceil(player.battery) + "%", W / 2, 100);
 
   if (player.landed && player.pilotPhase > 30 && Math.floor(frame / 24) % 2 === 0) {
-    ctx.font = "bold 12px 'Trebuchet MS', sans-serif";
+    ctx.font = "bold 12px Roboto, 'Helvetica Neue', Arial, sans-serif";
     ctx.fillStyle = COL.white;
     // 文字背景の小帯(視認性)
     const msg = isLast ? "PRESS ENTER でタイトルへ" : "PRESS ENTER で次のコースへ ▶";
@@ -2024,7 +2089,7 @@ function drawFireBtn() {
   ctx.beginPath(); ctx.arc(b.x, b.y, b.r - 2, 0, Math.PI * 2); ctx.stroke();
   drawStar(b.x, b.y - 3, 7, hasAmmo ? COL.itemStar : "#888");
   ctx.fillStyle = hasAmmo ? COL.white : "#999";
-  ctx.font = "bold 8px 'Trebuchet MS', sans-serif";
+  ctx.font = "bold 8px Roboto, 'Helvetica Neue', Arial, sans-serif";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillText(hasAmmo ? ("x" + player.ammo) : "0", b.x, b.y + 10);
   ctx.textAlign = "left";
@@ -2078,7 +2143,7 @@ function render() {
       ctx.textAlign = "center"; ctx.textBaseline = "top";
       glow(W / 2, 36, 70, COL.battBad, 0.2);
       ctx.fillStyle = COL.battBad;
-      ctx.font = "bold 12px 'Trebuchet MS', sans-serif";
+      ctx.font = "bold 12px Roboto, 'Helvetica Neue', Arial, sans-serif";
       ctx.fillText("!! LOW BATTERY !!", W / 2, 32);
       ctx.textAlign = "left";
     }
@@ -2098,8 +2163,8 @@ function update() {
     case STATE.TITLE:
       frame++;
       // キーボードでもステージ選択可能(タッチ/マウスはonDownで直接開始)
-      if (consume("ArrowUp") || consume("w"))   menuSel = (menuSel + WORLDS.length - 1) % WORLDS.length;
-      if (consume("ArrowDown") || consume("s")) menuSel = (menuSel + 1) % WORLDS.length;
+      if (consume("ArrowLeft") || consume("a") || consume("ArrowUp") || consume("w"))   menuSel = (menuSel + WORLDS.length - 1) % WORLDS.length;
+      if (consume("ArrowRight") || consume("d") || consume("ArrowDown") || consume("s")) menuSel = (menuSel + 1) % WORLDS.length;
       if (consume("Enter") || consume(" ") || consume("z")) startWorld(menuSel);
       uiConfirm = false; // タイトルはオプション選択で開始(画面タップ即スタートはしない)
       break;
